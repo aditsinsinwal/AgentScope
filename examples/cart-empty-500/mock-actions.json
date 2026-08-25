@@ -1,0 +1,11 @@
+[
+  {
+    "tool": "replace_text",
+    "arguments": {
+      "path": "cart.py",
+      "old": "    total = sum(items)",
+      "new": "    if not items:\n        return {\"status\": \"empty\", \"total\": 0}\n    total = sum(items)",
+      "expected_replacements": 1
+    }
+  }
+]

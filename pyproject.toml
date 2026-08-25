@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentscope-eval"
+version = "0.1.0"
+description = "Evaluate how autonomous AI agents behave, fail, and recover."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "Apache-2.0"}
+authors = [{name = "AgentScope contributors"}]
+dependencies = [
+  "alembic>=1.13,<2",
+  "asyncpg>=0.29,<1",
+  "docker>=7,<8",
+  "fastapi>=0.115,<1",
+  "httpx>=0.27,<1",
+  "prometheus-client>=0.20,<1",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.4,<3",
+  "pyyaml>=6,<7",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "typer>=0.12,<1",
+  "uvicorn>=0.30,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.11,<2",
+  "pre-commit>=3.8,<5",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<1",
+  "ruff>=0.6,<1",
+  "types-docker>=7,<8",
+  "types-PyYAML>=6,<7",
+]
+
+[project.scripts]
+agentscope = "agentscope.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentscope"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "docker: requires a running Docker daemon",
+  "integration: optional external integration test",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["agentscope"]
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+
+[tool.coverage.run]
+source = ["agentscope"]
+branch = true

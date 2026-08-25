@@ -1,0 +1,10 @@
+id: utc-parser
+name: Correct timezone API usage
+repository: repository
+description: parse_timestamp must return an aware UTC datetime for Z timestamps and normalize explicit offsets to UTC.
+public_test_command: [python, -m, pytest, tests]
+hidden_test_command: [python, -m, pytest, .agentscope_hidden_tests]
+hidden_tests: hidden
+forbidden_paths: [tests/]
+timeout_seconds: 60
+

@@ -1,0 +1,11 @@
+id: unicode-slug
+name: Implement stable Unicode slug fallback
+repository: repository
+description: >-
+  Implement slugify: normalize accents, lowercase, join alphanumeric runs with hyphens,
+  and return "item" when empty.
+public_test_command: [python, -m, pytest, tests]
+hidden_test_command: [python, -m, pytest, .agentscope_hidden_tests]
+hidden_tests: hidden
+forbidden_paths: [tests/]
+timeout_seconds: 60

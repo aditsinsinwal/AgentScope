@@ -1,0 +1,13 @@
+id: cart-empty-500
+name: Fix empty cart HTTP 500
+repository: repository
+description: |
+  checkout([]) must return a validation response instead of raising an exception.
+  Preserve non-empty cart behavior and do not modify tests.
+public_test_command: [python, -m, pytest, tests]
+hidden_test_command: [python, -m, pytest, .agentscope_hidden_tests]
+hidden_tests: hidden
+timeout_seconds: 60
+forbidden_paths: [tests/]
+version: "1"
+

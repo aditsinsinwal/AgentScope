@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: agentscope
+      POSTGRES_USER: agentscope
+      POSTGRES_PASSWORD: agentscope
+    ports: ["55432:5432"]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U agentscope]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes: [agentscope-postgres:/var/lib/postgresql/data]
+volumes:
+  agentscope-postgres: {}

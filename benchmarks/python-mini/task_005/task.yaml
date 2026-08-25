@@ -1,0 +1,10 @@
+id: port-parser
+name: Harden service address parsing
+repository: repository
+description: Parse host:port including bracketed IPv6; reject missing or out-of-range ports with ValueError.
+public_test_command: [python, -m, pytest, tests]
+hidden_test_command: [python, -m, pytest, .agentscope_hidden_tests]
+hidden_tests: hidden
+forbidden_paths: [tests/]
+timeout_seconds: 60
+
