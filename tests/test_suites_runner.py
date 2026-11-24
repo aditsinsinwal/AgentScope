@@ -287,3 +287,78 @@ async def test_compare_with_failed_cases_counts_unpaired(tmp_path: Path) -> None
     )
     cmp = compare_results(good, failed)
     assert cmp.n_unpaired == 1 and cmp.n_paired == 7
+
+
+async def test_outputs_jsonl_escapes_line_separators_and_replay_reads_them(tmp_path: Path) -> None:
+    from agentscope.suites.artifacts import outputs_jsonl
+
+    tricky = "TASK: a\u2028b\u2029c\x85d"
+    model = ReplayChatModel({"t01": tricky})
+    suite = load_suite(SUITE)
+    result = await SuiteRunner(suite, model, provider="replay", model_name="r").run()
+    text = outputs_jsonl(result)
+    assert "\u2028" not in text and "\u2029" not in text and "\x85" not in text
+    assert len(text.splitlines()) == 1
+    path = tmp_path / "o.jsonl"
+    path.write_text(text, encoding="utf-8")
+    assert ReplayChatModel.from_jsonl(path).output_for("t01") == tricky
+
+
+def test_replay_public_accessors() -> None:
+    model = ReplayChatModel({"a": "x", "b": "y"})
+    assert model.case_ids() == ["a", "b"]
+    assert model.output_for("a") == "x" and model.output_for("zz") is None
+
+
+async def test_pathological_regex_does_not_block_the_run() -> None:
+    import time
+
+    from agentscope.suites.models import CheckerConfig
+
+    suite = load_suite(SUITE)
+    evil = CheckerConfig(type="regex", pattern="(a|aa)+$", timeout_seconds=0.2)
+    suite = type(suite)(
+        suite.id,
+        suite.name,
+        suite.version,
+        suite.system_prompt,
+        suite.generation,
+        evil,
+        suite.cases,
+        suite.fingerprint,
+        suite.source_path,
+    )
+    model = ReplayChatModel({case.id: "a" * 40 + "b" for case in suite.cases})
+    started = time.monotonic()
+    result = await SuiteRunner(suite, model, provider="replay", model_name="r", concurrency=8).run()
+    assert time.monotonic() - started < 3  # unguarded this takes minutes
+    assert all(o.check and o.check.detail == "regex timed out" for o in result.outcomes)
+
+
+def test_default_out_dir_uses_reports_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from typer.testing import CliRunner
+
+    from agentscope.cli import app
+    from agentscope.config import get_settings
+
+    monkeypatch.setenv("AGENTSCOPE_REPORTS_DIR", str(tmp_path / "reports"))
+    get_settings.cache_clear()
+    try:
+        result = CliRunner().invoke(
+            app,
+            [
+                "suite",
+                "run",
+                "--suite",
+                str(SUITE),
+                "--provider",
+                "replay",
+                "--replay-outputs",
+                str(EXAMPLE_DIR / "replay-good.outputs.jsonl"),
+            ],
+        )
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "reports/task-cards-demo-replay-replay/results.json").is_file()

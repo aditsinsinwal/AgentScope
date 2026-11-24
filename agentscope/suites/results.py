@@ -85,6 +85,10 @@ class TokenTotals(_Doc):
 
 
 class Aggregate(_Doc):
+    """Rates are over scored cases. `mean_score` (kept under this name for compatibility) is
+    the mean *content* score: for field_lines it counts matched fields even when the output's
+    format is invalid, so read it together with `format_valid_rate`."""
+
     n: int
     n_failed: int
     n_scored: int

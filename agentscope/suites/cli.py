@@ -71,7 +71,23 @@ def run(
         str | None, typer.Option("--api-key-env", help="Name of the env var holding an API key.")
     ] = None,
     concurrency: Annotated[int, typer.Option("--concurrency", min=1, max=64)] = 1,
-    case_timeout: Annotated[float, typer.Option("--case-timeout", min=0.1)] = 120.0,
+    case_timeout: Annotated[
+        float,
+        typer.Option(
+            "--case-timeout",
+            min=0.1,
+            help="Total seconds per case, covering all retry attempts and backoff.",
+        ),
+    ] = 120.0,
+    request_timeout: Annotated[
+        float | None,
+        typer.Option(
+            "--request-timeout",
+            min=0.1,
+            help="Seconds per HTTP attempt; must be below --case-timeout "
+            "(default: min(60, case-timeout / 2)).",
+        ),
+    ] = None,
     max_cases: Annotated[int, typer.Option("--max-cases", min=1)] = DEFAULT_MAX_CASES,
     out: Annotated[Path | None, typer.Option("--out")] = None,
     overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
@@ -96,13 +112,18 @@ def run(
         else:
             if not model:
                 raise typer.BadParameter("--model is required for network providers")
+            per_request = (
+                request_timeout if request_timeout is not None else min(60.0, case_timeout / 2)
+            )
+            if per_request >= case_timeout:
+                raise typer.BadParameter("--request-timeout must be smaller than --case-timeout")
             network = build_chat_model(
                 provider,
                 model,
                 base_url=base_url,
                 local_only=local_only,
                 api_key_env=api_key_env,
-                timeout_seconds=case_timeout,
+                request_timeout_seconds=per_request,
             )
             chat, secrets, model_name, host = (
                 network,
@@ -111,7 +132,7 @@ def run(
                 url_host(network.base_url),
             )
         slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", model_name).strip("-") or "model"
-        out_dir = out or get_settings().artifact_root / "suites" / f"{suite.id}-{provider}-{slug}"
+        out_dir = out or get_settings().reports_dir / f"{suite.id}-{provider}-{slug}"
         prepare_out_dir(out_dir, overwrite=overwrite)
     except AgentScopeError as exc:
         raise _fail(exc) from exc
@@ -139,6 +160,8 @@ def run(
     typer.echo(f"Source: {doc.run.source}  Model: {model_name}")
     typer.echo(f"Cases: {agg.n} ({agg.n_scored} scored, {agg.n_failed} failed)")
     typer.echo(f"Format valid: {_pct(agg.format_valid_rate)}  Passed: {_pct(agg.pass_rate)}")
+    mean = "n/a" if agg.mean_score is None else f"{agg.mean_score:.3f}"
+    typer.echo(f"Mean content score (field matches; ignores format): {mean}")
     for name, acc in agg.field_accuracy.items():
         typer.echo(f"  {name}: {_pct(acc)}")
     typer.echo("Deterministic checks only; not a human preference judgement.")
@@ -192,7 +215,8 @@ def compare(
     )
     typer.echo(f"Format valid rate delta (B - A): {_delta(comparison.format_valid_rate_delta)}")
     typer.echo(f"Pass rate delta (B - A): {_delta(comparison.pass_rate_delta)}")
-    typer.echo(f"Mean score delta (B - A): {_delta(comparison.mean_score_delta, scale=1)}")
+    mean_delta = _delta(comparison.mean_score_delta, scale=1)
+    typer.echo(f"Mean content score delta (field matches; ignores format) (B - A): {mean_delta}")
     for name, value in comparison.field_accuracy_delta.items():
         typer.echo(f"  {name} accuracy delta: {_delta(value)}")
     typer.echo("Counts only; no significance is claimed. Not a human preference judgement.")

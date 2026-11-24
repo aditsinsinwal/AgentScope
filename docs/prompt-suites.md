@@ -37,7 +37,8 @@ checker type (so a typo cannot silently disable a rule).
 
 ### Cases file (JSONL)
 
-One object per line: `{"id", "prompt", "reference"?, "metadata"?}`. Ids match
+One object per line (lines are split on `\n` only; U+2028/U+2029/U+0085 inside strings are
+ordinary characters, and `outputs.jsonl` writes them as `\u` escapes): `{"id", "prompt", "reference"?, "metadata"?}`. Ids match
 `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`. Rejected, with the 1-based line number in the error:
 invalid JSON, unknown keys, blank prompts, duplicate ids. Blank lines are skipped. The default
 limit is 10,000 cases (`--max-cases`).
@@ -61,8 +62,11 @@ chatty preamble. Each returns `CaseCheck(passed, score in [0,1], format_valid, f
 | `field_lines` | format valid and every field matches the reference | see below | matched fields / total fields |
 | `json_keys` | output is a JSON object containing all `keys` | same as passed | present keys / required keys |
 
-`exact` needs a reference on every case (the loader checks). Regex patterns are limited to 2,000
-characters and only the first 100,000 characters of an output are examined.
+`exact` needs a reference on every case (the loader checks). Regex patterns (the `regex` package, a superset of `re`) are limited to 2,000
+characters; only the first 100,000 characters of an output are examined; and every match has a
+hard deadline (`timeout_seconds`, default 1.0). A pattern that exceeds it fails that check with
+detail `regex timed out` instead of hanging. Checks run in a worker thread so other cases keep
+progressing.
 
 ### `field_lines`
 
@@ -75,7 +79,8 @@ case-sensitive and must touch the colon. `format_valid` is true only if:
 - there are no other non-empty lines (`strict_line_count`, default true; set false to ignore
   extra lines anywhere).
 
-Per-field `matched` compares to the reference field, normalised and case-insensitive. The score
+Lines are split on `\n` / `\r\n` only, so `TASK: a PRIORITY: High` on one physical line is
+not a card. Per-field `matched` compares to the reference field, normalised and case-insensitive. The score
 counts matches even when the format is invalid, so "right content, wrong format" is visible
 (`score 1.0, format_valid false`). `passed = format_valid and all fields matched`.
 
@@ -94,14 +99,19 @@ Without a reference there is nothing to match: `matched` is `null`, the score is
 `--base-url` may override a preset's address, but the guard still applies. `require_loopback`
 accepts only `http`/`https` URLs whose host is the literal `localhost`, an IPv4 address in
 `127.0.0.0/8`, or `::1`. It rejects `127.0.0.1.example.com`, `0.0.0.0`, `127.1`, decimal-integer
-hosts, `http://127.0.0.1@evil.com`, any userinfo, IPv4-mapped IPv6, zone ids, backslashes and
+hosts, `http://127.0.0.1@evil.com`, any userinfo, any query string or fragment
+(`http://127.0.0.1#@evil.com/`), IPv4-mapped IPv6, zone ids, backslashes and
 whitespace, and other schemes. It performs no DNS lookup. The one accepted assumption is that the
 OS resolves `localhost` to loopback. The HTTP client ignores proxy environment variables and does
 not follow redirects, so a loopback request cannot be silently rerouted.
 
-The OpenAI-compatible client is non-streaming. Transport errors, timeouts, HTTP 429 and 5xx are
-retried up to 3 attempts total with exponential backoff (0.5 s, 1 s); other 4xx and malformed
-responses fail at once. The API key, if any, is read from the environment variable named by
+The OpenAI-compatible client is non-streaming and shares its retry policy
+(`agentscope/agents/providers/retry.py`) with the agent provider. Up to 3 attempts; only
+replay-safe transport errors (connect, read/write error, protocol error, pool timeout), HTTP 429
+and 5xx are retried, with capped exponential backoff and full jitter. `Retry-After` (seconds
+form) is honoured, floored at the backoff base and capped. A `ReadTimeout` (the request may
+already be processed) is not retried unless `AGENTSCOPE_PROVIDER_RETRY_READ_TIMEOUT=true`.
+Unsupported URLs, proxy errors, other 4xx and malformed responses fail at once. The API key, if any, is read from the environment variable named by
 `--api-key-env`, sent only in the `Authorization` header, and scrubbed from error messages and
 traces. Token counts come from the server's `usage` block and are `null` when absent; they are
 never estimated.
@@ -118,8 +128,12 @@ agentscope suite compare runs/base/results.json runs/tuned/results.json [--json]
 ```
 
 `run` options: `--base-url`, `--replay-outputs`, `--local-only`, `--api-key-env`,
-`--concurrency` (default 1: local models), `--case-timeout` seconds (default 120),
-`--max-cases`, `--out` (default `<artifact_root>/suites/<suite>-<provider>-<model>`),
+`--concurrency` (default 1: local models), `--case-timeout` seconds (default 120; the TOTAL budget for one case, covering every retry
+attempt and backoff), `--request-timeout` seconds per HTTP attempt (default
+`min(60, case-timeout / 2)`, and it must be smaller than `--case-timeout`),
+`--request-timeout`, `--max-cases`,
+`--out` (default `<reports_dir>/<suite>-<provider>-<model>`, where `reports_dir` is the
+`AGENTSCOPE_REPORTS_DIR` setting, default `artifacts/suite-reports`, the directory the dashboard reads),
 `--overwrite`, `--no-trace-text`.
 
 Exit codes: `0` success, `1` at least one case produced no output, `2` invalid input or a
@@ -140,7 +154,10 @@ error, it is **omitted from `outputs.jsonl`**, and the CLI exits 1 with a messag
 tool that needs every id will reject the incomplete file, which is the intent: fix the failure and
 rerun rather than judge a partial set.
 
-**Aggregates** are computed over scored (successful) cases; `n_failed` is reported separately.
+**Aggregates** are computed over scored (successful) cases. `mean_score` (the JSON name) is the
+mean *content* score: for `field_lines` it counts matched fields even when the format is
+invalid, so reports label it "Mean content score (field matches; ignores format)" and it
+should be read next to `format_valid_rate`; `n_failed` is reported separately.
 `format_valid_rate`, `pass_rate`, `mean_score` and per-field accuracy are `null` when nothing was
 scored. Latency p50/p95 use the nearest-rank method (the value at rank `ceil(p/100 * n)` of the
 sorted successful latencies) and are `null` when no latency was measured. Token totals are the sum
@@ -179,6 +196,7 @@ Suite: task-cards-demo v1  fingerprint 98db77dfe504
 Source: replay  Model: replay
 Cases: 8 (8 scored, 0 failed)
 Format valid: 100.0%  Passed: 75.0%
+Mean content score (field matches; ignores format): 0.950
   TASK: 100.0%
   OWNER: 100.0%
   DUE: 87.5%
@@ -193,6 +211,7 @@ Suite: task-cards-demo v1  fingerprint 98db77dfe504
 Source: replay  Model: replay
 Cases: 8 (8 scored, 0 failed)
 Format valid: 25.0%  Passed: 25.0%
+Mean content score (field matches; ignores format): 0.950
   TASK: 100.0%
   OWNER: 100.0%
   DUE: 100.0%
@@ -209,7 +228,7 @@ Paired cases: 8 (unpaired: 0); B better: 0, tie: 8, A better: 0
 Format valid only in B: 6, only in A: 0; passed only in B: 4, only in A: 0
 Format valid rate delta (B - A): +75.0 pp
 Pass rate delta (B - A): +50.0 pp
-Mean score delta (B - A): +0.000
+Mean content score delta (field matches; ignores format) (B - A): +0.000
   DUE accuracy delta: -12.5 pp
   NOTE accuracy delta: +0.0 pp
   OWNER accuracy delta: +0.0 pp

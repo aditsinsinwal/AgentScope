@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://agentscope:agentscope@127.0.0.1:55432/agentscope"
     artifact_root: Path = Path("artifacts")
+    reports_dir: Path = Path("artifacts/suite-reports")
     sandbox_image: str = "agentscope-sandbox:py312"
     max_concurrent_runs: int = Field(default=2, ge=1, le=64)
     log_level: str = "INFO"

@@ -134,10 +134,17 @@ def build_results(result: SuiteRunResult) -> ResultsDocument:
     )
 
 
+def _escape_line_separators(line: str) -> str:
+    """Keep U+2028/U+2029/U+0085 as \\u escapes so any line-splitting reader sees one record."""
+    return line.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029").replace("\x85", "\\u0085")
+
+
 def outputs_jsonl(result: SuiteRunResult) -> str:
     """Exactly `{"id", "output"}` per successful case, in suite case order."""
     lines = [
-        json.dumps({"id": o.case_id, "output": o.output}, ensure_ascii=False)
+        _escape_line_separators(
+            json.dumps({"id": o.case_id, "output": o.output}, ensure_ascii=False)
+        )
         for o in result.outcomes
         if o.ok
     ]
@@ -159,6 +166,7 @@ def _num(value: float | None, unit: str = "") -> str:
 def report_markdown(doc: ResultsDocument) -> str:
     agg = doc.aggregate
     run = doc.run
+    mean = "n/a" if agg.mean_score is None else f"{agg.mean_score:.3f}"
     lines = [
         f"# Prompt suite report: {doc.suite.name}",
         "",
@@ -176,7 +184,7 @@ def report_markdown(doc: ResultsDocument) -> str:
         "|---|---|",
         f"| Format valid | {_pct(agg.format_valid_rate)} |",
         f"| Passed | {_pct(agg.pass_rate)} |",
-        f"| Mean score | {'n/a' if agg.mean_score is None else f'{agg.mean_score:.3f}'} |",
+        f"| Mean content score (field matches; ignores format) | {mean} |",
         f"| Latency p50 / p95 (nearest-rank) | {_num(agg.latency_ms.p50, ' ms')} / "
         f"{_num(agg.latency_ms.p95, ' ms')} |",
         f"| Tokens prompt / completion | {_int(agg.tokens.prompt)} / "
