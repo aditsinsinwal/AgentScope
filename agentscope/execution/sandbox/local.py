@@ -29,7 +29,8 @@ class LocalSandbox:
 
     async def __aenter__(self) -> Self:
         self._temporary = TemporaryDirectory(prefix="agentscope-")
-        self.root = Path(self._temporary.name).resolve() / "workspace"
+        resolved = await asyncio.to_thread(Path(self._temporary.name).resolve)
+        self.root = resolved / "workspace"
         await asyncio.to_thread(shutil.copytree, self._repository, self.root)
         return self
 

@@ -1,5 +1,7 @@
 # AgentScope
 
+[![CI](https://github.com/aditsinsinwal/AgentScope/actions/workflows/ci.yml/badge.svg)](https://github.com/aditsinsinwal/AgentScope/actions/workflows/ci.yml) ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue) ![License Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
+
 **Evaluate how AI agents behave, fail, and recover.**
 
 AgentScope runs coding agents against versioned software-engineering tasks in isolated Docker

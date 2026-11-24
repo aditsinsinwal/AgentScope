@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from sqlalchemy import or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agentscope.persistence.models import RunRecord, WorkerRecord
@@ -57,4 +59,5 @@ class LeaseCoordinator:
                 .where(RunRecord.id == run_id, RunRecord.worker_id == worker_id)
                 .values(lease_until=deadline)
             )
-            return bool(result.rowcount)
+            cursor = cast(CursorResult[Any], result)
+            return bool(cursor.rowcount)

@@ -29,7 +29,7 @@ def test_run_follows_explicit_happy_path() -> None:
 
 def test_invalid_transition_fails_loudly() -> None:
     run = ExperimentRun(TaskId("task"), AgentConfiguration("mock"))
-    with pytest.raises(InvalidStateTransition, match="created.*completed"):
+    with pytest.raises(InvalidStateTransition, match=r"created.*completed"):
         run.transition(RunStatus.COMPLETED)
 
 
