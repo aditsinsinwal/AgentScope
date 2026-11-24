@@ -95,5 +95,5 @@ export const api = {
   report: (id: string, signal?: AbortSignal) =>
     request<SuiteReport>(`/api/v1/suite-reports/${enc(id)}`, {signal}),
   compare: (a: string, b: string, signal?: AbortSignal) =>
-    request<Comparison>(`/api/v1/suite-reports/compare?a=${enc(a)}&b=${enc(b)}`, {signal}),
+    request<Comparison>(`/api/v1/suite-compare?a=${enc(a)}&b=${enc(b)}`, {signal}),
 };

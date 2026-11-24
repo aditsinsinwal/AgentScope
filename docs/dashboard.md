@@ -36,7 +36,7 @@ API routes (read-only, behind the same auth as the rest of `/api/`):
 
 - `GET /api/v1/suite-reports`
 - `GET /api/v1/suite-reports/{report_id}`
-- `GET /api/v1/suite-reports/compare?a=<id>&b=<id>[&allow_mismatch=true]`
+- `GET /api/v1/suite-compare?a=<id>&b=<id>[&allow_mismatch=true]`
 
 Report ids must match `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`. Symlinked report directories or
 `results.json` files are never followed, and the resolved file must stay inside the reports

@@ -59,7 +59,7 @@ export function ComparePage({a, b}: {a: string; b: string}) {
         <section className="tiles" aria-label="Aggregate deltas (B minus A)">
           <Tile label="Pass rate Δ" value={pp(c.pass_rate_delta)} note={`passed only in B: ${c.passed_b_only}, only in A: ${c.passed_a_only}`} />
           <Tile label="Format valid Δ" value={pp(c.format_valid_rate_delta)} note={`valid only in B: ${c.format_valid_b_only}, only in A: ${c.format_valid_a_only}`} />
-          <Tile label="Mean score Δ" value={signed(c.mean_score_delta)} />
+          <Tile label="Mean content score Δ" value={signed(c.mean_score_delta)} />
         </section>
         <section className="card" aria-labelledby="delta-h">
           <h2 id="delta-h">Per-field accuracy change (B minus A)</h2>

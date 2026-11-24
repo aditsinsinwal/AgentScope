@@ -53,7 +53,7 @@ describe("pages", () => {
   });
 
   it("compare view shows paired counts, deltas and the counts-only note", async () => {
-    route({"/api/v1/suite-reports/compare": () => jsonResponse(comparison),
+    route({"/api/v1/suite-compare": () => jsonResponse(comparison),
       "/api/v1/suite-reports": () => jsonResponse([comparison.a, comparison.b])});
     render(<ComparePage a="chatty" b="good" />);
     const counts = within(await screen.findByLabelText("Paired case counts"));

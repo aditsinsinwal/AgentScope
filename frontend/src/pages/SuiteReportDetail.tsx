@@ -65,7 +65,7 @@ export function SuiteReportDetailPage({id}: {id: string}) {
         <section aria-label="Aggregate metrics" className="tiles">
           <Tile label="Pass rate" value={pct(agg.pass_rate, 1)} note={`${agg.n_scored} scored of ${agg.n} cases`} />
           <Tile label="Format valid" value={pct(agg.format_valid_rate, 1)} />
-          <Tile label="Mean score" value={score(agg.mean_score)} note="0 to 1 per case" />
+          <Tile label="Mean content score" value={score(agg.mean_score)} note="field matches; ignores format" />
           <Tile label="Latency p50" value={ms(agg.latency_ms.p50)} note={agg.latency_ms.n ? `n=${agg.latency_ms.n}` : undefined} />
           <Tile label="Latency p95" value={ms(agg.latency_ms.p95)} note={agg.latency_ms.n ? agg.latency_ms.method : undefined} />
           <Tile label="Tokens" value={tokenTotal(agg.tokens)}
