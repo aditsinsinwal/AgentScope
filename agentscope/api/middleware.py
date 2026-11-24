@@ -18,6 +18,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 logger = logging.getLogger("agentscope.api")
 
 PUBLIC_PATHS = frozenset({"/api/v1/health"})
+# Generated API docs describe the whole surface, so they are protected like /api/.
+DOC_PATHS = frozenset({"/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect"})
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -115,7 +117,8 @@ class SecurityMiddleware:
             await emit({"type": "http.response.body", "body": body})
 
         path: str = scope["path"]
-        if self._token is not None and path.startswith("/api/") and path not in PUBLIC_PATHS:
+        protected = (path.startswith("/api/") or path in DOC_PATHS) and path not in PUBLIC_PATHS
+        if self._token is not None and protected:
             supplied = headers.get(b"authorization", b"")
             scheme, _, credential = supplied.partition(b" ")
             if scheme.lower() != b"bearer" or not hmac.compare_digest(

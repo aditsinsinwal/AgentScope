@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,8 @@ from agentscope.scheduler.local import AsyncRunScheduler, ScheduledJob
 from agentscope.tasks.loader import load_task, task_fingerprint
 from agentscope.tracing.recorder import InMemoryTraceRecorder
 from agentscope.tracing.render import render_trace
+
+logger = logging.getLogger("agentscope.api")
 
 
 def _agent_config(value: AgentConfigurationSchema) -> AgentConfiguration:
@@ -109,6 +112,12 @@ def create_app(
     """
     settings = get_settings()
     token = api_token if api_token is not None else settings.api_token
+    if token is not None and not token.strip():
+        logger.warning(
+            "AGENTSCOPE_API_TOKEN is set but empty: authentication is DISABLED. "
+            "Unset it deliberately or provide a real token."
+        )
+        token = None
     state = ApiState(sandbox_kind)
 
     @asynccontextmanager
@@ -125,7 +134,7 @@ def create_app(
         max_request_bytes=max_request_bytes or settings.max_request_bytes,
     )
 
-    @app.get("/api/v1/health")
+    @app.api_route("/api/v1/health", methods=["GET", "HEAD"])
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__, "sandbox": state.sandbox_kind}
 

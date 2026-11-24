@@ -152,3 +152,34 @@ def test_startup_warning_only_for_exposed_unauthenticated_binding(
         assert not warn_if_unauthenticated("0.0.0.0", TOKEN)
         assert warn_if_unauthenticated("0.0.0.0", None)
     assert len(caplog.records) == 1 and TOKEN not in caplog.text
+
+
+def test_generated_docs_require_token_but_dashboard_assets_stay_public() -> None:
+    app = create_app(sandbox_kind="local", api_token=TOKEN)
+    with TestClient(app) as client:
+        for path in ("/openapi.json", "/docs", "/redoc"):
+            assert client.get(path).status_code == 401, path
+            assert client.get(path, headers=AUTH).status_code == 200, path
+        assert client.get("/").status_code == 200  # static dashboard shell is public
+    with TestClient(build()) as client:
+        assert client.get("/openapi.json").status_code == 200
+
+
+def test_empty_token_is_loudly_reported_not_silent(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agentscope.config import get_settings
+
+    monkeypatch.setenv("AGENTSCOPE_API_TOKEN", "")
+    get_settings.cache_clear()
+    try:
+        with caplog.at_level(logging.WARNING, logger="agentscope.api"):
+            build()
+    finally:
+        get_settings.cache_clear()
+    assert "empty" in caplog.text and "DISABLED" in caplog.text
+
+
+def test_head_health_ok() -> None:
+    with TestClient(build(api_token=TOKEN)) as client:
+        assert client.head("/api/v1/health").status_code == 200
