@@ -24,8 +24,8 @@ model output are untrusted. Operators and the Docker daemon are trusted in v0.1.
   `/api/` route except `/api/v1/health`. When unset the API is open, intended only for loopback
   development; `agentscope serve` logs one warning if it binds a non-loopback host without a token.
   The generated `/openapi.json`, `/docs` and `/redoc` need the token too. The static dashboard
-  shell is served without authentication; whether the dashboard can supply a token is a property of
-  the dashboard build, not of the API. An empty `AGENTSCOPE_API_TOKEN` is treated as a
+  shell is served without authentication. Its API token field keeps the token in `sessionStorage`
+  for the current tab only and sends it as `Authorization: Bearer` on `/api/*` calls. An empty `AGENTSCOPE_API_TOKEN` is treated as a
   misconfiguration: authentication stays off and a warning is logged at startup.
 - Request bodies are limited (`AGENTSCOPE_MAX_REQUEST_BYTES`, default 1 MiB); larger declared or
   chunked bodies get `413`.

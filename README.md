@@ -30,7 +30,8 @@ re-scored by deterministic checks. It is not a model benchmark, and no model was
 - **Append-only traces and replay.** Every model call and tool call is recorded as an event, and
   recorded runs can be replayed and re-scored offline.
 - **Sandbox isolation for untrusted code.** Each SWE run gets a fresh, network-disabled, resource-limited
-  Docker container. Hidden tests run in a second container after the agent container is destroyed.
+  Docker container. Hidden tests are copied in only after the agent has stopped, so the agent never
+  sees them.
 - **Local-first, loopback-only.** The Ollama and LM Studio providers default to `127.0.0.1` and the
   loopback guard applies to every base URL. It rejects lookalike hosts, userinfo and non-loopback
   addresses before any request is sent.
@@ -260,16 +261,20 @@ tests are excluded), 82.39% branch coverage against a 70% gate, and 15 frontend 
 
 ### Robustness
 
-- Provider calls retry transport errors, HTTP 429 and 5xx with exponential backoff and jitter,
-  honouring `Retry-After` up to a cap. Other 4xx responses are not retried.
+- Provider calls retry HTTP 429, 5xx and connection-level failures with exponential backoff and
+  full jitter, honouring `Retry-After` (floored at the backoff base, capped). Other 4xx responses,
+  invalid URLs and unsupported protocols fail fast. A read timeout is not retried by default,
+  because the request may already have been processed.
 - Provider failures raise typed `ProviderError`s (status, retryable flag, attempts) that never carry
   the API key, request body or response body.
 - Agent loops are capped by `max_steps` and a tool-call limit. Hitting a cap is recorded as a
   distinct failure, not a silent truncation.
-- Cancelling a run or shutting down the scheduler cancels running jobs, so sandbox context managers
-  unwind and containers are cleaned up.
-- The HTTP API supports optional bearer-token auth (constant-time comparison), a request body limit
-  (`413` above it), request ids (`X-Request-ID` echoed), and one JSON error envelope.
+- Cancelling a run or shutting down the scheduler cancels running jobs, so sandboxes unwind, including
+  a container still being provisioned. Jobs cancelled before they start are recorded as `CANCELLED`,
+  and the engine is the single writer of that state.
+- The HTTP API supports optional bearer-token auth (constant-time comparison, also covering the
+  OpenAPI docs), a request body limit (`413` above it, chunked bodies included), request ids
+  (`X-Request-ID` echoed), and one JSON error envelope.
 - Suite-report routes are path-safe: report ids are validated, and symlinks are never followed.
 - The loopback guard rejects userinfo, lookalike hosts (`127.0.0.1.example.com`), `0.0.0.0`, and
   non-http(s) schemes, and performs no DNS lookup.
@@ -278,8 +283,8 @@ Details: [reliability](docs/reliability.md), [security](docs/security.md).
 
 ## Used by: LocAI
 
-LocAI, a local-model fine-tuning project, uses the prompt-suite mode as a maintainer-side,
-loopback-only pre-screen for its experiments. Suite outputs feed a blind human A/B sheet. The
+LocAI, a local-model setup and fine-tuning project, is adopting the prompt-suite mode as a
+maintainer-side, loopback-only pre-screen for its fine-tuning experiments. Suite outputs feed a blind human A/B sheet. The
 deterministic checks (format validity, per-field accuracy, latency and tokens) are supplementary
 evidence and are not the success metric for that project.
 
