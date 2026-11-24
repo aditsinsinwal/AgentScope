@@ -39,3 +39,20 @@ async def test_workspace_root_is_a_valid_list_path(tmp_path: Path) -> None:
         result = await registry.call("list_directory", {"path": "."})
     assert result.success
     assert result.content == "source.py"
+
+
+async def test_jsonl_round_trip_preserves_unknown_token_counts(tmp_path: Path) -> None:
+    from agentscope.domain.models import RunId
+    from agentscope.tracing.models import EventType, TraceEvent
+    from agentscope.tracing.recorder import JsonlTraceRecorder
+
+    recorder = JsonlTraceRecorder(tmp_path)
+    run_id = RunId("run_abc")
+    await recorder.append(
+        TraceEvent(run_id, 0, EventType.MODEL_CALL, "m", input_tokens=None, output_tokens=None)
+    )
+    await recorder.append(  # must not crash on the previous null line
+        TraceEvent(run_id, 0, EventType.MODEL_CALL, "m", input_tokens=5, output_tokens=2)
+    )
+    events = await recorder.events(run_id)
+    assert [(e.input_tokens, e.output_tokens) for e in events] == [(None, None), (5, 2)]

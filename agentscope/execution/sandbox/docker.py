@@ -14,6 +14,21 @@ from agentscope.domain.errors import SandboxError
 from agentscope.execution.sandbox.base import CommandResult, validate_relative_path
 
 
+_BACKGROUND: set[asyncio.Future[None]] = set()
+
+
+async def _reap_late(creating: asyncio.Future[Any], client: Any) -> None:
+    """Remove a container whose creation finished after the creator was cancelled."""
+    try:
+        try:
+            container = await creating
+        except Exception:
+            return
+        await asyncio.to_thread(container.remove, force=True)
+    finally:
+        await asyncio.to_thread(client.close)
+
+
 class DockerSandbox:
     """Ephemeral, network-disabled Docker execution boundary."""
 
@@ -41,38 +56,65 @@ class DockerSandbox:
             import docker
 
             self._client = await asyncio.to_thread(docker.from_env)
-            self._container = await asyncio.to_thread(
-                self._client.containers.run,
-                self.image,
-                ["sleep", "infinity"],
-                detach=True,
-                network_disabled=True,
-                read_only=True,
-                tmpfs={
-                    self.workspace: "rw,noexec,nosuid,size=256m,uid=65534,gid=65534",
-                    "/tmp": "rw,noexec,nosuid,size=64m,uid=65534,gid=65534",
-                },
-                cap_drop=["ALL"],
-                security_opt=["no-new-privileges:true"],
-                user="65534:65534",
-                working_dir=self.workspace,
-                **self.limits,
+            # A thread cannot be interrupted. Keep its future so that, if we are cancelled while
+            # Docker is still creating the container, we can remove it once it exists.
+            creating = asyncio.ensure_future(
+                asyncio.to_thread(
+                    self._client.containers.run,
+                    self.image,
+                    ["sleep", "infinity"],
+                    detach=True,
+                    network_disabled=True,
+                    read_only=True,
+                    tmpfs={
+                        self.workspace: "rw,noexec,nosuid,size=256m,uid=65534,gid=65534",
+                        "/tmp": "rw,noexec,nosuid,size=64m,uid=65534,gid=65534",
+                    },
+                    cap_drop=["ALL"],
+                    security_opt=["no-new-privileges:true"],
+                    user="65534:65534",
+                    working_dir=self.workspace,
+                    **self.limits,
+                )
             )
+            try:
+                self._container = await asyncio.shield(creating)
+            except asyncio.CancelledError:
+                client, self._client = self._client, None
+                task = asyncio.ensure_future(_reap_late(creating, client))
+                _BACKGROUND.add(task)
+                task.add_done_callback(_BACKGROUND.discard)
+                raise
             await self._put_tree(self.repository, self.workspace)
             return self
+        except asyncio.CancelledError:
+            await self._shielded_cleanup()
+            raise
         except Exception as exc:
-            await self.__aexit__()
+            await self._shielded_cleanup()
             raise SandboxError(f"failed to provision Docker sandbox: {exc}") from exc
 
+    async def _shielded_cleanup(self) -> None:
+        cleanup = asyncio.ensure_future(self._cleanup())
+        _BACKGROUND.add(cleanup)
+        cleanup.add_done_callback(_BACKGROUND.discard)
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            pass  # cleanup keeps running in the background; the original cancellation propagates
+
     async def __aexit__(self, *exc_info: object) -> None:
-        if self._container is not None:
-            try:
-                await asyncio.to_thread(self._container.remove, force=True)
-            finally:
-                self._container = None
-        if self._client is not None:
-            await asyncio.to_thread(self._client.close)
-            self._client = None
+        await self._shielded_cleanup()
+
+    async def _cleanup(self) -> None:
+        container, self._container = self._container, None
+        client, self._client = self._client, None
+        try:
+            if container is not None:
+                await asyncio.to_thread(container.remove, force=True)
+        finally:
+            if client is not None:
+                await asyncio.to_thread(client.close)
 
     async def _put_tree(self, source: Path, destination: str) -> None:
         if self._container is None:
