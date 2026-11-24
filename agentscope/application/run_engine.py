@@ -149,6 +149,13 @@ class RunEngine:
                     )
                 )
                 return completed
+        except asyncio.CancelledError:
+            # Sandbox context managers have already unwound; record a terminal state, then
+            # propagate so the caller's task really ends.
+            stored = await self.runs.get(run.id)
+            if not stored.status.terminal:
+                await self._transition(stored, RunStatus.CANCELLED)
+            raise
         except SandboxError as exc:
             target = (
                 RunStatus.EVALUATION_FAILED

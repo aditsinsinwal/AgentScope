@@ -18,6 +18,8 @@ class ScheduledJob:
     max_infrastructure_retries: int = 1
     attempts: int = 0
     future: asyncio.Future[Any] | None = None
+    task: asyncio.Task[Any] | None = None
+    cancel_requested: bool = False
 
 
 class AsyncRunScheduler:
@@ -49,6 +51,10 @@ class AsyncRunScheduler:
         job = self._jobs.get(job_id)
         if job is None or job.future is None or job.future.done():
             return False
+        job.cancel_requested = True
+        if job.task is not None and not job.task.done():
+            # Stop the running work too, so its sandbox context managers unwind.
+            job.task.cancel()
         return job.future.cancel()
 
     async def _worker(self) -> None:
@@ -60,8 +66,14 @@ class AsyncRunScheduler:
                 if job.future is None or job.future.cancelled():
                     continue
                 job.attempts += 1
+                job.task = asyncio.ensure_future(job.execute())
                 try:
-                    result = await job.execute()
+                    result = await job.task
+                except asyncio.CancelledError:
+                    if not job.cancel_requested:
+                        raise  # the worker itself is being cancelled
+                    if not job.future.done():
+                        job.future.cancel()
                 except InfrastructureFailure as exc:
                     if job.attempts <= job.max_infrastructure_retries:
                         await self._queue.put(job)
@@ -78,7 +90,15 @@ class AsyncRunScheduler:
                 self._queue.task_done()
 
     async def close(self) -> None:
+        """Cancel queued and running jobs, then stop workers; leaves no tasks behind."""
+        for job in self._jobs.values():
+            if job.future is not None and not job.future.done():
+                job.cancel_requested = True
+                if job.task is not None and not job.task.done():
+                    job.task.cancel()
+                job.future.cancel()
         for _ in self._workers:
             await self._queue.put(None)
         await asyncio.gather(*self._workers, return_exceptions=True)
         self._workers.clear()
+        self._jobs.clear()

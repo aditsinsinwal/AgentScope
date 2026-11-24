@@ -64,7 +64,12 @@ LEGAL_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
         }
     ),
     RunStatus.EVALUATING: frozenset(
-        {RunStatus.COMPLETED, RunStatus.EVALUATION_FAILED, RunStatus.TIMED_OUT}
+        {
+            RunStatus.COMPLETED,
+            RunStatus.EVALUATION_FAILED,
+            RunStatus.TIMED_OUT,
+            RunStatus.CANCELLED,
+        }
     ),
     **{status: frozenset() for status in TERMINAL_STATUSES},
 }

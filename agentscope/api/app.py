@@ -273,9 +273,12 @@ def create_app(*, sandbox_kind: str = "docker", serve_frontend: bool = True) -> 
     async def cancel_run(run_id: str) -> RunView:
         run = await state.runs.get(RunId(run_id))
         job_id = state.run_jobs.get(run.id)
-        if job_id and state.scheduler.cancel(job_id) and not run.status.terminal:
-            run = run.transition(RunStatus.CANCELLED)
-            await state.runs.save(run)
+        if job_id and state.scheduler.cancel(job_id):
+            # The engine may already have recorded the cancellation; re-read before writing.
+            run = await state.runs.get(run.id)
+            if not run.status.terminal:
+                run = run.transition(RunStatus.CANCELLED)
+                await state.runs.save(run)
         return _run_view(run)
 
     static_directory = Path(__file__).with_name("static")
