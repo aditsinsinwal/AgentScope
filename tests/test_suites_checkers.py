@@ -140,3 +140,23 @@ def test_field_lines_without_reference_scores_format_only() -> None:
 def test_empty_output() -> None:
     result = card().check("", REF)
     assert not result.format_valid and result.score == 0.0
+
+
+def test_field_lines_splits_on_newlines_only() -> None:
+    # A single physical line is never a multi-line card, whatever separators it contains.
+    one_line = "TASK: a\u2028OWNER: b\u2029DUE: c\x85PRIORITY: High\x1cNOTE: n"
+    result = card().check(one_line, None)
+    assert not result.format_valid
+    crlf = card().check(REF.replace("\n", "\r\n"), REF)
+    assert crlf.passed
+
+
+async def test_regex_catastrophic_pattern_times_out_quickly() -> None:
+    import asyncio
+    import time
+
+    checker = RegexChecker("(a|aa)+$", timeout_seconds=0.2)
+    started = time.monotonic()
+    result = await asyncio.to_thread(checker.check, "a" * 40 + "b", None)
+    assert time.monotonic() - started < 3
+    assert (result.passed, result.format_valid, result.detail) == (False, False, "regex timed out")

@@ -155,3 +155,12 @@ def test_bad_kind_and_id(tmp_path: Path) -> None:
         load_suite(
             make(tmp_path, '{"id":"a","prompt":"p"}\n', BASE_YAML.replace("demo-suite", "X"))
         )
+
+
+def test_jsonl_splits_on_newline_only(tmp_path: Path) -> None:
+    # U+2028/U+2029/U+0085 and \x1c inside strings must not break a record.
+    row = {"id": "a", "prompt": "line\u2028two\u2029three\x85four"}
+    raw = json.dumps(row, ensure_ascii=False) + "\r\n"
+    path = make(tmp_path, raw)
+    suite = load_suite(path)
+    assert suite.cases[0].prompt == row["prompt"]

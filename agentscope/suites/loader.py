@@ -15,6 +15,7 @@ from agentscope.suites.models import (
     PromptSuite,
     SuiteCase,
     SuiteDocument,
+    split_jsonl,
     suite_fingerprint,
 )
 
@@ -47,7 +48,7 @@ def parse_cases(
         raise SuiteDefinitionError(f"{source}: not valid UTF-8: {exc}") from exc
     cases: list[SuiteCase] = []
     seen: dict[str, int] = {}
-    for number, line in enumerate(text.splitlines(), start=1):
+    for number, line in enumerate(split_jsonl(text), start=1):
         if not line.strip():
             continue
         try:

@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+import regex
+
 from agentscope.suites.models import CheckerConfig
 
 # Checkers never look at more than this many characters of model output, which
@@ -93,18 +95,34 @@ class ExactChecker:
 
 
 class RegexChecker:
-    def __init__(self, pattern: str, mode: str = "fullmatch", ignore_case: bool = False) -> None:
-        self._pattern = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+    """Patterns use the `regex` module (a superset of `re`) so every match has a hard deadline.
+
+    A pattern that exceeds `timeout_seconds` on an output is a failed check ("regex timed out"),
+    never a hang.
+    """
+
+    def __init__(
+        self,
+        pattern: str,
+        mode: str = "fullmatch",
+        ignore_case: bool = False,
+        timeout_seconds: float = 1.0,
+    ) -> None:
+        self._pattern = regex.compile(pattern, regex.IGNORECASE if ignore_case else 0)
         self._mode = mode
+        self._timeout = timeout_seconds
 
     def check(self, output: str, reference: str | None) -> CaseCheck:
         # Only whitespace is trimmed here; the pattern author owns any fence handling.
         text = _bounded(output).strip()
-        found = (
-            self._pattern.fullmatch(text)
-            if self._mode == "fullmatch"
-            else self._pattern.search(text)
-        )
+        try:
+            found = (
+                self._pattern.fullmatch(text, timeout=self._timeout)
+                if self._mode == "fullmatch"
+                else self._pattern.search(text, timeout=self._timeout)
+            )
+        except TimeoutError:
+            return CaseCheck(False, 0.0, False, None, "regex timed out")
         passed = found is not None
         return CaseCheck(
             passed=passed,
@@ -151,7 +169,7 @@ def parse_field_lines(text: str, fields: tuple[str, ...]) -> ParsedFields:
     values: dict[str, list[str]] = {}
     order: list[str] = []
     extra: list[str] = []
-    for raw in text.splitlines():
+    for raw in re.split(r"\r?\n", text):
         line = raw.strip()
         if not line:
             continue
@@ -254,7 +272,7 @@ def build_checker(config: CheckerConfig) -> Checker:
         return ExactChecker(config.case_insensitive)
     if config.type == "regex":
         assert config.pattern is not None
-        return RegexChecker(config.pattern, config.mode, config.ignore_case)
+        return RegexChecker(config.pattern, config.mode, config.ignore_case, config.timeout_seconds)
     if config.type == "field_lines":
         return FieldLinesChecker(
             config.fields, config.allowed_values, config.strict_line_count, config.ordered

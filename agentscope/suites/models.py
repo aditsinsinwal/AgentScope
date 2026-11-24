@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self
 
+import regex
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SUITE_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{1,63}$"
@@ -21,7 +21,7 @@ CheckerType = Literal["exact", "regex", "field_lines", "json_keys"]
 # configuration error, so a typo never silently disables a rule.
 _ALLOWED_SETTINGS: dict[str, frozenset[str]] = {
     "exact": frozenset({"type", "case_insensitive"}),
-    "regex": frozenset({"type", "pattern", "mode", "ignore_case"}),
+    "regex": frozenset({"type", "pattern", "mode", "ignore_case", "timeout_seconds"}),
     "field_lines": frozenset({"type", "fields", "allowed_values", "strict_line_count", "ordered"}),
     "json_keys": frozenset({"type", "keys"}),
 }
@@ -49,6 +49,7 @@ class CheckerConfig(BaseModel):
     pattern: str | None = Field(default=None, min_length=1, max_length=MAX_PATTERN_CHARS)
     mode: Literal["fullmatch", "search"] = "fullmatch"
     ignore_case: bool = False
+    timeout_seconds: float = Field(default=1.0, ge=0.01, le=30.0)
     # field_lines
     fields: tuple[str, ...] = ()
     allowed_values: dict[str, tuple[str, ...]] = Field(default_factory=dict)
@@ -73,8 +74,8 @@ class CheckerConfig(BaseModel):
             if self.pattern is None:
                 raise ValueError("regex checker requires 'pattern'")
             try:
-                re.compile(self.pattern)
-            except re.error as exc:
+                regex.compile(self.pattern)
+            except regex.error as exc:
                 raise ValueError(f"invalid regex pattern: {exc}") from exc
         elif self.type == "field_lines":
             if not self.fields:
@@ -138,6 +139,12 @@ class PromptSuite:
     cases: tuple[SuiteCase, ...]
     fingerprint: str
     source_path: Path
+
+
+def split_jsonl(text: str) -> list[str]:
+    """Split on \\n only (dropping one trailing \\r): str.splitlines() also breaks on
+    U+2028, U+0085, \\x1c and friends, which are legal inside JSON strings."""
+    return [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
 
 
 def _frame(digest: Any, label: str, payload: bytes) -> None:

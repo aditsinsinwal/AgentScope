@@ -232,7 +232,8 @@ class SuiteRunner:
         try:
             completion = await self._call(case)
             completion.text.encode("utf-8")  # lone surrogates cannot be written; fail the case
-            check = self._checker.check(completion.text, case.reference)
+            # Off the event loop: other cases keep progressing while a check runs.
+            check = await asyncio.to_thread(self._checker.check, completion.text, case.reference)
         except Exception as exc:  # per-case isolation; CancelledError is not an Exception
             wall_ms = (time.monotonic() - started) * 1000
             message = redact(f"{type(exc).__name__}: {exc}", self.secrets)
