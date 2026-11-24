@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,6 @@ from agentscope.domain.models import (
     RunId,
     TaskId,
 )
-from agentscope.domain.states import RunStatus
 from agentscope.evaluation.evaluator import TestBasedEvaluator
 from agentscope.execution.sandbox.docker import DockerSandbox
 from agentscope.execution.sandbox.local import LocalSandbox
@@ -134,7 +134,8 @@ def create_app(
         max_request_bytes=max_request_bytes or settings.max_request_bytes,
     )
 
-    @app.api_route("/api/v1/health", methods=["GET", "HEAD"])
+    @app.get("/api/v1/health")
+    @app.head("/api/v1/health", include_in_schema=False)
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__, "sandbox": state.sandbox_kind}
 
@@ -265,7 +266,10 @@ def create_app(
                 async def execute_run(run: ExperimentRun = run, task: Any = task) -> ExperimentRun:
                     return await state.engine.execute(run, task, MockAgent(()))
 
-                job = ScheduledJob(execute_run)
+                job = ScheduledJob(
+                    execute_run,
+                    on_cancelled=partial(state.engine.mark_cancelled, run.id),
+                )
                 future = await state.scheduler.submit(job)
                 future.add_done_callback(
                     lambda done: None if done.cancelled() else done.exception()
@@ -335,12 +339,10 @@ def create_app(
     async def cancel_run(run_id: str) -> RunView:
         run = await state.runs.get(RunId(run_id))
         job_id = state.run_jobs.get(run.id)
-        if job_id and state.scheduler.cancel(job_id):
-            # The engine may already have recorded the cancellation; re-read before writing.
+        if job_id:
+            # The engine (or the scheduler's cancel callback) is the single writer of CANCELLED.
+            await state.scheduler.cancel_and_wait(job_id, settle_seconds=5.0)
             run = await state.runs.get(run.id)
-            if not run.status.terminal:
-                run = run.transition(RunStatus.CANCELLED)
-                await state.runs.save(run)
         return _run_view(run)
 
     static_directory = Path(__file__).with_name("static")
