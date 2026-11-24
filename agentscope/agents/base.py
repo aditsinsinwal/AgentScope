@@ -14,6 +14,8 @@ class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
     cached_tokens: int = 0
+    # Calls whose response carried no usage block; their tokens are unknown, not zero.
+    unreported_calls: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,8 +37,8 @@ class AgentEnvironment(Protocol):
         self,
         model: str,
         duration_ms: float,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
         *,
         status: str = "success",
         error: str | None = None,
@@ -62,8 +64,8 @@ class ToolEnvironment:
         self,
         model: str,
         duration_ms: float,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
         *,
         status: str = "success",
         error: str | None = None,

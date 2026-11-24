@@ -31,6 +31,6 @@ class TraceEvent:
     output_summary: str | None = None
     error: str | None = None
     model: str | None = None
-    input_tokens: int = 0
-    output_tokens: int = 0
+    input_tokens: int | None = 0
+    output_tokens: int | None = 0
     metadata: dict[str, Any] = field(default_factory=dict)

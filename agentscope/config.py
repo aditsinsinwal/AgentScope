@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     max_concurrent_runs: int = Field(default=2, ge=1, le=64)
     log_level: str = "INFO"
     api_key: str | None = None
+    api_token: str | None = None
+    max_request_bytes: int = Field(default=1_048_576, ge=1)
+    provider_max_attempts: int = Field(default=4, ge=1, le=10)
+    provider_backoff_base_seconds: float = Field(default=0.5, ge=0)
+    provider_backoff_cap_seconds: float = Field(default=30.0, ge=0)
+    agent_max_tool_calls: int = Field(default=200, ge=1)
 
 
 @lru_cache
