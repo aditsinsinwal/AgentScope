@@ -26,6 +26,9 @@ class RetryPolicy:
     max_attempts: int = 4
     base_seconds: float = 0.5
     cap_seconds: float = 30.0
+    # A ReadTimeout means the request was sent and may still be processed (and billed); resending
+    # it can duplicate a completion, so it is opt-in.
+    retry_read_timeout: bool = False
 
     def __post_init__(self) -> None:
         if self.max_attempts < 1:
@@ -40,7 +43,19 @@ class RetryPolicy:
             settings.provider_max_attempts,
             settings.provider_backoff_base_seconds,
             settings.provider_backoff_cap_seconds,
+            settings.provider_retry_read_timeout,
         )
+
+
+# Failures where resending is safe: the request was not (fully) delivered or the connection broke.
+_RETRYABLE_TRANSPORT = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.PoolTimeout,
+)
 
 
 def _parse_retry_after(value: str | None) -> float | None:
@@ -94,14 +109,19 @@ class OpenAICompatibleAgent:
         self.retry = retry or RetryPolicy.from_settings()
         self._sleep = sleep
         self._uniform = uniform
-        self.max_tool_calls = max_tool_calls or get_settings().agent_max_tool_calls
+        if max_tool_calls is not None and max_tool_calls < 1:
+            raise ValueError("max_tool_calls must be at least 1")
+        self.max_tool_calls = (
+            max_tool_calls if max_tool_calls is not None else get_settings().agent_max_tool_calls
+        )
 
     def _redact(self, text: str) -> str:
         return text.replace(self.api_key, "[redacted]") if self.api_key else text
 
     def _delay(self, attempt: int, retry_after: float | None) -> float:
         if retry_after is not None:
-            return min(retry_after, self.retry.cap_seconds)
+            # Floor at the backoff base so "Retry-After: 0" cannot turn into a hot loop.
+            return min(max(retry_after, self.retry.base_seconds), self.retry.cap_seconds)
         ceiling = min(self.retry.cap_seconds, self.retry.base_seconds * (2 ** (attempt - 1)))
         return self._uniform(0.0, ceiling)
 
@@ -116,12 +136,19 @@ class OpenAICompatibleAgent:
                 response = await client.post(
                     endpoint, headers={"Authorization": f"Bearer {self.api_key}"}, json=body
                 )
+            except httpx.InvalidURL as exc:
+                raise ProviderError("provider endpoint URL is invalid", attempts=attempt) from exc
             except httpx.TransportError as exc:
+                retryable = isinstance(exc, _RETRYABLE_TRANSPORT) or (
+                    self.retry.retry_read_timeout and isinstance(exc, httpx.ReadTimeout)
+                )
                 error = ProviderError(
                     f"provider transport error ({type(exc).__name__})",
-                    retryable=True,
+                    retryable=retryable,
                     attempts=attempt,
                 )
+                if not retryable:
+                    raise error from exc
             else:
                 code = response.status_code
                 if code < 400:
@@ -260,7 +287,9 @@ class OpenAICompatibleAgent:
                     raise ProviderError("provider response had no choices[0].message")
                 messages.append(message)
                 requested = message.get("tool_calls")
-                if not requested or not isinstance(requested, list):
+                if requested is not None and not isinstance(requested, list):
+                    raise ProviderError("provider response had a malformed tool_calls field")
+                if not requested:
                     content = message.get("content")
                     text = content if isinstance(content, str) and content else "finished"
                     return AgentResult(True, text, step, tool_calls, usage)

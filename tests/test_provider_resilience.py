@@ -186,12 +186,6 @@ async def test_transport_errors_retried_without_leaking_details(tmp_path: Path) 
         assert (await agent.run(make_task(tmp_path), Env())).completed
     assert attempts == 3
 
-    agent, client = make_agent(lambda r: (_ for _ in ()).throw(httpx.ReadTimeout("t", request=r)))
-    async with client:
-        with pytest.raises(ProviderError) as info:
-            await agent.run(make_task(tmp_path), Env())
-    assert "ReadTimeout" in str(info.value) and info.value.retryable
-
 
 @pytest.mark.parametrize(
     "response",
@@ -345,3 +339,85 @@ def test_retry_policy_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
         assert RetryPolicy.from_settings().max_attempts == 2
     finally:
         get_settings.cache_clear()
+
+
+def _raiser(error_type: type[Exception], counter: list[int]) -> Callable[[httpx.Request], Any]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        counter.append(1)
+        raise (
+            error_type("x", request=request)
+            if error_type is not httpx.InvalidURL
+            else error_type("x")
+        )  # type: ignore[call-arg]
+
+    return handler
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.RemoteProtocolError,
+        httpx.ReadError,
+        httpx.WriteError,
+        httpx.PoolTimeout,
+    ],
+)
+async def test_safe_transport_errors_are_retried(
+    tmp_path: Path, error_type: type[Exception]
+) -> None:
+    calls: list[int] = []
+    agent, client = make_agent(_raiser(error_type, calls), max_attempts=3)
+    async with client:
+        with pytest.raises(ProviderError) as info:
+            await agent.run(make_task(tmp_path), Env())
+    assert len(calls) == 3 and info.value.retryable
+
+
+@pytest.mark.parametrize(
+    "error_type", [httpx.ReadTimeout, httpx.UnsupportedProtocol, httpx.InvalidURL]
+)
+async def test_unsafe_transport_errors_are_not_retried(
+    tmp_path: Path, error_type: type[Exception]
+) -> None:
+    calls: list[int] = []
+    agent, client = make_agent(_raiser(error_type, calls))
+    async with client:
+        with pytest.raises(ProviderError) as info:
+            await agent.run(make_task(tmp_path), Env())
+    assert len(calls) == 1 and not info.value.retryable
+
+
+async def test_read_timeout_retry_is_opt_in(tmp_path: Path) -> None:
+    calls: list[int] = []
+    agent, client = make_agent(_raiser(httpx.ReadTimeout, calls), max_attempts=2)
+    agent.retry = RetryPolicy(2, 1.0, 10.0, retry_read_timeout=True)
+    async with client:
+        with pytest.raises(ProviderError):
+            await agent.run(make_task(tmp_path), Env())
+    assert len(calls) == 2
+
+
+async def test_retry_after_zero_is_floored_at_backoff_base(tmp_path: Path) -> None:
+    responses = iter([httpx.Response(429, headers={"Retry-After": "0"}), ok({"content": "x"})])
+    sleeps: list[float] = []
+    agent, client = make_agent(lambda _: next(responses), sleeps)
+    async with client:
+        await agent.run(make_task(tmp_path), Env())
+    assert sleeps == [1.0]
+
+
+@pytest.mark.parametrize("bad", ["call it", {"id": "x"}, 5])
+async def test_non_list_tool_calls_is_not_a_final_answer(tmp_path: Path, bad: object) -> None:
+    agent, client = make_agent(lambda _: ok({"content": "done", "tool_calls": bad}))
+    async with client:
+        with pytest.raises(ProviderError, match="tool_calls") as info:
+            await agent.run(make_task(tmp_path), Env())
+    assert not info.value.retryable
+
+
+def test_zero_tool_call_cap_is_rejected() -> None:
+    config = AgentConfiguration("c", ModelConfiguration("p", "m"))
+    with pytest.raises(ValueError, match="max_tool_calls"):
+        OpenAICompatibleAgent(config, "k", max_tool_calls=0)
