@@ -1,4 +1,4 @@
-import {defineConfig} from "vite";
+import {defineConfig} from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
@@ -11,5 +11,10 @@ export default defineConfig({
   build: {
     outDir: "../agentscope/api/static",
     emptyOutDir: true,
+  },
+  test: {
+    environment: "jsdom",
+    include: ["test/**/*.test.{ts,tsx}"],
+    restoreMocks: true,
   },
 });
