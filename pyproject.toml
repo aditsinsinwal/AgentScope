@@ -30,7 +30,8 @@ dev = [
   "mypy>=1.11,<2",
   "pre-commit>=3.8,<5",
   "pytest>=8.3,<9",
-  "pytest-asyncio>=0.24,<1",
+  "pytest-asyncio>=1.5,<2",
+  "pytest-cov>=6,<8",
   "ruff>=0.6,<1",
   "types-docker>=7,<8",
   "types-PyYAML>=6,<7",
@@ -43,7 +44,7 @@ agentscope = "agentscope.cli:app"
 packages = ["agentscope"]
 
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q --cov=agentscope --cov-report=term-missing"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -69,3 +70,8 @@ warn_unused_ignores = true
 [tool.coverage.run]
 source = ["agentscope"]
 branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 60
