@@ -8,11 +8,9 @@ from typing import Any
 import httpx
 import pytest
 
-from agentscope.agents.providers.openai_compatible import (
-    OpenAICompatibleAgent,
-    RetryPolicy,
-    _parse_retry_after,
-)
+from agentscope.agents.providers.openai_compatible import OpenAICompatibleAgent
+from agentscope.agents.providers.retry import RetryPolicy
+from agentscope.agents.providers.retry import parse_retry_after as _parse_retry_after
 from agentscope.domain.errors import AgentLimitExceeded, ProviderError, ToolExecutionError
 from agentscope.domain.models import (
     AgentConfiguration,

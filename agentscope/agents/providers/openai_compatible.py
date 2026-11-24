@@ -2,71 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random as _random
 import time
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from agentscope.agents.base import AgentEnvironment, AgentResult, Usage
+from agentscope.agents.providers.retry import (
+    RetryPolicy,
+    Sleep,
+    Uniform,
+    default_uniform,
+    parse_retry_after,
+)
 from agentscope.config import get_settings
 from agentscope.domain.errors import AgentLimitExceeded, ProviderError, ToolExecutionError
 from agentscope.domain.models import AgentConfiguration, EvaluationTask
-
-Sleep = Callable[[float], Awaitable[None]]
-Uniform = Callable[[float, float], float]
-
-
-@dataclass(frozen=True, slots=True)
-class RetryPolicy:
-    """Bounded exponential backoff with full jitter."""
-
-    max_attempts: int = 4
-    base_seconds: float = 0.5
-    cap_seconds: float = 30.0
-    # A ReadTimeout means the request was sent and may still be processed (and billed); resending
-    # it can duplicate a completion, so it is opt-in.
-    retry_read_timeout: bool = False
-
-    def __post_init__(self) -> None:
-        if self.max_attempts < 1:
-            raise ValueError("max_attempts must be at least 1")
-        if self.base_seconds < 0 or self.cap_seconds < 0:
-            raise ValueError("backoff durations must not be negative")
-
-    @classmethod
-    def from_settings(cls) -> RetryPolicy:
-        settings = get_settings()
-        return cls(
-            settings.provider_max_attempts,
-            settings.provider_backoff_base_seconds,
-            settings.provider_backoff_cap_seconds,
-            settings.provider_retry_read_timeout,
-        )
-
-
-# Failures where resending is safe: the request was not (fully) delivered or the connection broke.
-_RETRYABLE_TRANSPORT = (
-    httpx.ConnectError,
-    httpx.ConnectTimeout,
-    httpx.RemoteProtocolError,
-    httpx.ReadError,
-    httpx.WriteError,
-    httpx.PoolTimeout,
-)
-
-
-def _parse_retry_after(value: str | None) -> float | None:
-    """Seconds form only; HTTP-date values are ignored in favour of computed backoff."""
-    if value is None:
-        return None
-    try:
-        seconds = float(value.strip())
-    except ValueError:
-        return None
-    return seconds if seconds >= 0 and seconds == seconds and seconds != float("inf") else None
 
 
 def _token(data: dict[str, Any], key: str) -> int | None:
@@ -98,7 +49,7 @@ class OpenAICompatibleAgent:
         client: httpx.AsyncClient | None = None,
         retry: RetryPolicy | None = None,
         sleep: Sleep = asyncio.sleep,
-        uniform: Uniform = _random.uniform,
+        uniform: Uniform = default_uniform,
         max_tool_calls: int | None = None,
     ) -> None:
         if configuration.model is None:
@@ -118,13 +69,6 @@ class OpenAICompatibleAgent:
     def _redact(self, text: str) -> str:
         return text.replace(self.api_key, "[redacted]") if self.api_key else text
 
-    def _delay(self, attempt: int, retry_after: float | None) -> float:
-        if retry_after is not None:
-            # Floor at the backoff base so "Retry-After: 0" cannot turn into a hot loop.
-            return min(max(retry_after, self.retry.base_seconds), self.retry.cap_seconds)
-        ceiling = min(self.retry.cap_seconds, self.retry.base_seconds * (2 ** (attempt - 1)))
-        return self._uniform(0.0, ceiling)
-
     async def _post(
         self, client: httpx.AsyncClient, endpoint: str, body: dict[str, Any]
     ) -> dict[str, Any]:
@@ -139,9 +83,7 @@ class OpenAICompatibleAgent:
             except httpx.InvalidURL as exc:
                 raise ProviderError("provider endpoint URL is invalid", attempts=attempt) from exc
             except httpx.TransportError as exc:
-                retryable = isinstance(exc, _RETRYABLE_TRANSPORT) or (
-                    self.retry.retry_read_timeout and isinstance(exc, httpx.ReadTimeout)
-                )
+                retryable = self.retry.is_retryable_transport(exc)
                 error = ProviderError(
                     f"provider transport error ({type(exc).__name__})",
                     retryable=retryable,
@@ -170,7 +112,7 @@ class OpenAICompatibleAgent:
                         status_code=code,
                         attempts=attempt,
                     )
-                retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+                retry_after = parse_retry_after(response.headers.get("Retry-After"))
                 error = ProviderError(
                     "model provider rate limited the run"
                     if code == 429
@@ -181,7 +123,7 @@ class OpenAICompatibleAgent:
                 )
             if attempt >= self.retry.max_attempts:
                 raise error
-            await self._sleep(self._delay(attempt, retry_after))
+            await self._sleep(self.retry.delay(attempt, retry_after, self._uniform))
 
     async def _run_tool(
         self, environment: AgentEnvironment, call: Any, known: frozenset[str]

@@ -15,8 +15,14 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from agentscope.agents.providers.retry import (
+    RetryPolicy,
+    Uniform,
+    default_uniform,
+    parse_retry_after,
+)
 from agentscope.domain.errors import LoopbackViolationError, ProviderError, SuiteDefinitionError
-from agentscope.suites.models import GenerationParams
+from agentscope.suites.models import GenerationParams, split_jsonl
 
 PRESET_BASE_URLS: dict[str, str] = {
     "ollama": "http://127.0.0.1:11434/v1",
@@ -82,6 +88,8 @@ def require_loopback(url: str) -> str:
         raise LoopbackViolationError(f"scheme {parts.scheme!r} not allowed; use http or https")
     if parts.username is not None or parts.password is not None or "@" in parts.netloc:
         raise LoopbackViolationError("URLs with embedded credentials (userinfo) are not allowed")
+    if parts.query or parts.fragment or "?" in url or "#" in url:
+        raise LoopbackViolationError("base URLs must not carry a query or fragment")
     if not host:
         raise LoopbackViolationError("URL has no host")
     if "%" in host:
@@ -133,10 +141,18 @@ RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 class OpenAICompatibleChatModel:
     """Non-streaming `/chat/completions` client with bounded retry.
 
-    Retries (max `max_attempts`, exponential backoff) on transport errors, timeouts,
-    HTTP 429 and 5xx. Other 4xx and malformed bodies fail immediately. Redirects are
-    not followed. The API key (read from an environment variable) is only ever placed
-    in the Authorization header and is scrubbed from every error message.
+    The retry policy is shared with the agent provider (`agents.providers.retry`): only
+    replay-safe transport errors (connect/write/read errors, protocol errors, pool timeouts),
+    HTTP 429 and 5xx are retried, with capped exponential backoff and full jitter, `Retry-After`
+    honoured (floored at the backoff base, capped). A ReadTimeout is not retried unless
+    `AGENTSCOPE_PROVIDER_RETRY_READ_TIMEOUT` is set. Other 4xx, unsupported URLs and malformed
+    bodies fail at once. Attempts default to 3. Redirects are not followed. The API key (read
+    from an environment variable) is only ever placed in the Authorization header and is
+    scrubbed from every error message.
+
+    Timeouts: `request_timeout_seconds` bounds ONE HTTP attempt. The suite runner's
+    `case_timeout_seconds` is a deliberate budget for the whole case (all attempts plus backoff),
+    so keep the request timeout smaller than the case timeout or retries can never happen.
     """
 
     def __init__(
@@ -145,21 +161,20 @@ class OpenAICompatibleChatModel:
         model: str,
         *,
         api_key_env: str | None = None,
-        timeout_seconds: float = 120.0,
+        request_timeout_seconds: float = 60.0,
         max_attempts: int = 3,
-        base_delay_seconds: float = 0.5,
+        retry: RetryPolicy | None = None,
         sleep: SleepFn = asyncio.sleep,
+        uniform: Uniform = default_uniform,
         client: httpx.AsyncClient | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> None:
-        if max_attempts < 1:
-            raise ValueError("max_attempts must be at least 1")
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self.max_attempts = max_attempts
-        self.base_delay_seconds = base_delay_seconds
-        self.timeout_seconds = timeout_seconds
+        self.retry = retry or RetryPolicy.from_settings(max_attempts)
+        self.request_timeout_seconds = request_timeout_seconds
         self._sleep = sleep
+        self._uniform = uniform
         self._client = client
         self._api_key: str | None = None
         if api_key_env:
@@ -187,7 +202,7 @@ class OpenAICompatibleChatModel:
             body["seed"] = params.seed
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         client = self._client or httpx.AsyncClient(
-            timeout=self.timeout_seconds, follow_redirects=False, trust_env=False
+            timeout=self.request_timeout_seconds, follow_redirects=False, trust_env=False
         )
         try:
             return await self._with_retry(client, body, headers)
@@ -198,40 +213,44 @@ class OpenAICompatibleChatModel:
     async def _with_retry(
         self, client: httpx.AsyncClient, body: dict[str, Any], headers: dict[str, str]
     ) -> ChatCompletion:
-        last: ProviderError | None = None
-        for attempt in range(1, self.max_attempts + 1):
+        attempt = 0
+        while True:
+            attempt += 1
             started = time.monotonic()
+            retry_after: float | None = None
             try:
                 response = await client.post(
                     f"{self.base_url}/chat/completions", json=body, headers=headers
                 )
+            except httpx.InvalidURL as exc:
+                raise ProviderError("provider endpoint URL is invalid", attempts=attempt) from exc
             except httpx.TransportError as exc:
-                last = ProviderError(
-                    self._scrub(f"transport error ({type(exc).__name__}): {exc}"), retryable=True
+                retryable = self.retry.is_retryable_transport(exc)
+                error = ProviderError(
+                    self._scrub(f"transport error ({type(exc).__name__}): {exc}"),
+                    retryable=retryable,
+                    attempts=attempt,
                 )
+                if not retryable:
+                    raise error from exc
             else:
                 latency_ms = (time.monotonic() - started) * 1000
-                if response.status_code in RETRYABLE_STATUS:
-                    last = ProviderError(
-                        self._scrub(f"HTTP {response.status_code}: {response.text[:200]}"),
-                        status_code=response.status_code,
-                        retryable=True,
-                    )
-                elif response.status_code >= 300:
-                    raise ProviderError(
-                        self._scrub(f"HTTP {response.status_code}: {response.text[:200]}"),
-                        status_code=response.status_code,
-                    )
-                else:
+                code = response.status_code
+                if code < 300:
                     return self._parse(response, latency_ms)
-            if attempt < self.max_attempts:
-                await self._sleep(self.base_delay_seconds * 2 ** (attempt - 1))
-        assert last is not None
-        raise ProviderError(
-            f"{last} (after {self.max_attempts} attempts)",
-            status_code=last.status_code,
-            retryable=True,
-        )
+                message = self._scrub(f"HTTP {code}: {response.text[:200]}")
+                if code not in RETRYABLE_STATUS:
+                    raise ProviderError(message, status_code=code, attempts=attempt)
+                retry_after = parse_retry_after(response.headers.get("Retry-After"))
+                error = ProviderError(message, status_code=code, retryable=True, attempts=attempt)
+            if attempt >= self.retry.max_attempts:
+                raise ProviderError(
+                    f"{error} (after {attempt} attempts)",
+                    status_code=error.status_code,
+                    retryable=error.retryable,
+                    attempts=attempt,
+                )
+            await self._sleep(self.retry.delay(attempt, retry_after, self._uniform))
 
     def _scrub(self, text: str) -> str:
         return redact(text, self.secrets)
@@ -288,7 +307,7 @@ class ReplayChatModel:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             raise SuiteDefinitionError(f"cannot read replay outputs {path}: {exc}") from exc
-        for number, line in enumerate(text.splitlines(), start=1):
+        for number, line in enumerate(split_jsonl(text), start=1):
             if not line.strip():
                 continue
             try:
@@ -310,6 +329,12 @@ class ReplayChatModel:
                 raise SuiteDefinitionError(f"{path} line {number}: duplicate id {item['id']!r}")
             outputs[item["id"]] = item["output"]
         return cls(outputs)
+
+    def case_ids(self) -> list[str]:
+        return list(self._outputs)
+
+    def output_for(self, case_id: str) -> str | None:
+        return self._outputs.get(case_id)
 
     @property
     def unused_ids(self) -> list[str]:
@@ -339,7 +364,7 @@ def build_chat_model(
     base_url: str | None = None,
     local_only: bool = False,
     api_key_env: str | None = None,
-    timeout_seconds: float = 120.0,
+    request_timeout_seconds: float = 60.0,
 ) -> OpenAICompatibleChatModel:
     """Build a network chat model. Presets always enforce loopback; so does `local_only`."""
     if provider in PRESET_BASE_URLS:
@@ -353,5 +378,5 @@ def build_chat_model(
     if provider in _LOOPBACK_PRESETS or local_only:
         require_loopback(url)
     return OpenAICompatibleChatModel(
-        url, model, api_key_env=api_key_env, timeout_seconds=timeout_seconds
+        url, model, api_key_env=api_key_env, request_timeout_seconds=request_timeout_seconds
     )

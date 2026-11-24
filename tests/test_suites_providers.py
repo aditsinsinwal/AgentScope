@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 import pytest
 
+from agentscope.agents.providers.retry import RetryPolicy
 from agentscope.domain.errors import LoopbackViolationError, ProviderError, SuiteDefinitionError
 from agentscope.suites.models import GenerationParams
 from agentscope.suites.providers import (
@@ -45,6 +46,10 @@ def test_loopback_allowed(url: str) -> None:
         "http://user:pw@127.0.0.1/v1",
         "http://evil.com#@127.0.0.1/",
         "http://127.0.0.1\\@evil.com/",
+        "http://127.0.0.1#@evil.com/",
+        "http://127.0.0.1/v1?x=@evil.com",
+        "http://127.0.0.1/v1#frag",
+        "http://127.0.0.1/v1?",
         "http://[::2]/v1",
         "http://[::ffff:127.0.0.1]/v1",
         "http://[::1%25eth0]/v1",
@@ -102,7 +107,12 @@ def model_with(handler: Any, **kwargs: Any) -> tuple[OpenAICompatibleChatModel, 
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     model = OpenAICompatibleChatModel(
-        "http://127.0.0.1:1/v1/", "demo", client=client, sleep=sleep, **kwargs
+        "http://127.0.0.1:1/v1/",
+        "demo",
+        client=client,
+        sleep=sleep,
+        uniform=lambda _lo, hi: hi,
+        **kwargs,
     )
     return model, sleeps
 
@@ -166,7 +176,7 @@ async def test_retries_5xx_then_succeeds_with_backoff() -> None:
             return httpx.Response(503 if len(calls) == 1 else 429, text="busy")
         return httpx.Response(200, json=ok_body())
 
-    model, sleeps = model_with(handler, base_delay_seconds=1.0)
+    model, sleeps = model_with(handler, retry=RetryPolicy(3, 1.0, 30.0))
     assert (await model.complete(MESSAGES, PARAMS)).text == "hello"
     assert len(calls) == 3 and sleeps == [1.0, 2.0]
 
@@ -272,3 +282,53 @@ def test_replay_file_validation(tmp_path: Path, text: str) -> None:
     path.write_text(text + "\n")
     with pytest.raises(SuiteDefinitionError, match="line"):
         ReplayChatModel.from_jsonl(path)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [httpx.ReadTimeout("slow"), httpx.UnsupportedProtocol("bad scheme"), httpx.ProxyError("p")],
+)
+async def test_unsafe_transport_errors_are_not_retried(exc: Exception) -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        raise exc
+
+    model, sleeps = model_with(handler)
+    with pytest.raises(ProviderError) as info:
+        await model.complete(MESSAGES, PARAMS)
+    assert len(calls) == 1 and sleeps == [] and not info.value.retryable
+
+
+async def test_read_timeout_retry_is_opt_in() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("slow")
+        return httpx.Response(200, json=ok_body())
+
+    model, sleeps = model_with(handler, retry=RetryPolicy(3, 0.5, 30.0, retry_read_timeout=True))
+    assert (await model.complete(MESSAGES, PARAMS)).text == "hello"
+    assert len(calls) == 2 and len(sleeps) == 1
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [("7", 7.0), ("0", 1.0), ("1000", 30.0), ("Wed, 21 Oct 2026 07:28:00 GMT", 1.0), ("-3", 1.0)],
+)
+async def test_retry_after_honoured_floored_and_capped(header: str, expected: float) -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"Retry-After": header}, text="slow down")
+        return httpx.Response(200, json=ok_body())
+
+    # Unparseable values fall back to computed backoff: uniform() returns its ceiling (base).
+    model, sleeps = model_with(handler, retry=RetryPolicy(3, 1.0, 30.0))
+    await model.complete(MESSAGES, PARAMS)
+    assert sleeps == [expected]
