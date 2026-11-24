@@ -99,6 +99,10 @@ def serve(
     """Serve the versioned HTTP API."""
     import uvicorn
 
+    from agentscope.api.middleware import warn_if_unauthenticated
+    from agentscope.config import get_settings
+
+    warn_if_unauthenticated(host, get_settings().api_token)
     uvicorn.run(create_app(sandbox_kind=sandbox), host=host, port=port)
 
 

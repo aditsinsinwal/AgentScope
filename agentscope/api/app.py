@@ -5,14 +5,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Query, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentscope import __version__
 from agentscope.agents.mock import MockAgent
+from agentscope.api.middleware import SecurityMiddleware, error_envelope
 from agentscope.api.schemas import (
     AgentConfigurationSchema,
-    ErrorBody,
     ExperimentCreate,
     ExperimentView,
     RunBatchView,
@@ -23,6 +25,7 @@ from agentscope.api.schemas import (
 )
 from agentscope.application.repositories import InMemoryRunRepository
 from agentscope.application.run_engine import RunEngine
+from agentscope.config import get_settings
 from agentscope.domain.errors import AgentScopeError, RunNotFoundError
 from agentscope.domain.models import (
     AgentConfiguration,
@@ -87,7 +90,25 @@ class ApiState:
         self.engine = RunEngine(self.runs, self.traces, TestBasedEvaluator(), factory)
 
 
-def create_app(*, sandbox_kind: str = "docker", serve_frontend: bool = True) -> FastAPI:
+def _request_id(request: Request) -> str | None:
+    value = getattr(request.state, "request_id", None)
+    return value if isinstance(value, str) else None
+
+
+def create_app(
+    *,
+    sandbox_kind: str = "docker",
+    serve_frontend: bool = True,
+    api_token: str | None = None,
+    max_request_bytes: int | None = None,
+) -> FastAPI:
+    """Build the API. Token and body limit default to ``AGENTSCOPE_*`` settings.
+
+    CORS is deliberately not enabled: the dashboard is served same-origin and no cross-origin
+    caller is trusted.
+    """
+    settings = get_settings()
+    token = api_token if api_token is not None else settings.api_token
     state = ApiState(sandbox_kind)
 
     @asynccontextmanager
@@ -98,18 +119,50 @@ def create_app(*, sandbox_kind: str = "docker", serve_frontend: bool = True) -> 
 
     app = FastAPI(title="AgentScope API", version="0.1.0", lifespan=lifespan)
     app.state.services = state
+    app.add_middleware(
+        SecurityMiddleware,
+        api_token=token or None,
+        max_request_bytes=max_request_bytes or settings.max_request_bytes,
+    )
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__, "sandbox": state.sandbox_kind}
 
     @app.exception_handler(AgentScopeError)
-    async def expected_error(_: Request, exc: AgentScopeError) -> JSONResponse:
+    async def expected_error(request: Request, exc: AgentScopeError) -> JSONResponse:
         code = "not_found" if isinstance(exc, RunNotFoundError) else "agentscope_error"
         http_status = status.HTTP_404_NOT_FOUND if code == "not_found" else 422
         return JSONResponse(
             status_code=http_status,
-            content=ErrorBody(code=code, message=str(exc)).model_dump(),
+            content=error_envelope(code, str(exc), _request_id(request)),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Report location and reason only; never echo submitted values back.
+        details = [
+            {
+                "loc": [str(part) for part in item["loc"]],
+                "message": item["msg"],
+                "type": item["type"],
+            }
+            for item in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content=error_envelope(
+                "validation_error", "request validation failed", _request_id(request), details
+            ),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_envelope(code, str(exc.detail), _request_id(request)),
+            headers=getattr(exc, "headers", None),
         )
 
     @app.post("/api/v1/tasks", response_model=TaskView, status_code=201)
