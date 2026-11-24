@@ -119,6 +119,7 @@ Suite: task-cards-demo v1  fingerprint 98db77dfe504
 Source: replay  Model: replay
 Cases: 8 (8 scored, 0 failed)
 Format valid: 100.0%  Passed: 75.0%
+Mean content score (field matches; ignores format): 0.950
   TASK: 100.0%
   OWNER: 100.0%
   DUE: 87.5%
@@ -131,6 +132,7 @@ Suite: task-cards-demo v1  fingerprint 98db77dfe504
 Source: replay  Model: replay
 Cases: 8 (8 scored, 0 failed)
 Format valid: 25.0%  Passed: 25.0%
+Mean content score (field matches; ignores format): 0.950
   TASK: 100.0%
   OWNER: 100.0%
   DUE: 100.0%
@@ -146,7 +148,7 @@ Paired cases: 8 (unpaired: 0); B better: 0, tie: 8, A better: 0
 Format valid only in B: 6, only in A: 0; passed only in B: 4, only in A: 0
 Format valid rate delta (B - A): +75.0 pp
 Pass rate delta (B - A): +50.0 pp
-Mean score delta (B - A): +0.000
+Mean content score delta (field matches; ignores format) (B - A): +0.000
   DUE accuracy delta: -12.5 pp
   NOTE accuracy delta: +0.0 pp
   OWNER accuracy delta: +0.0 pp
@@ -230,34 +232,34 @@ API token field.
 - **CI** ([`ci.yml`](.github/workflows/ci.yml)): a Python job on 3.12 and 3.13 that runs `ruff check`,
   `ruff format --check`, `mypy agentscope` (strict) and `pytest` with the coverage gate, plus a
   frontend job that runs `npm run typecheck`, `npm test` and `npm run build`.
-- **Coverage gate**: branch coverage with `fail_under = 70` in `pyproject.toml`.
-- **Measured at commit `d606465`** (the commands below were run on that commit):
+- **Coverage gate**: branch coverage with `fail_under = 75` in `pyproject.toml`, enforced in CI.
+- **Stale-bundle check**: CI rebuilds the dashboard and fails if the committed bundle differs.
+- **Measured at commit `9506979`** (the code this README describes; commands run on that commit):
 
 <details>
 <summary>Commands and output</summary>
 
 ```text
-$ .venv/bin/pytest --cov=agentscope 2>&1 | tail -3
-1 empty file skipped.
-Required test coverage of 70.0% reached. Total coverage: 82.39%
-193 passed, 2 skipped, 1 warning in 6.89s
+$ pytest --cov=agentscope 2>&1 | tail -2
+Required test coverage of 75.0% reached. Total coverage: 84.14%
+238 passed, 2 skipped, 1 warning in 4.94s
 
 $ cd frontend && npm ci --silent && npm test 2>&1 | tail -5
- Test Files  3 passed (3)
-      Tests  15 passed (15)
+ Test Files  4 passed (4)
+      Tests  17 passed (17)
 
-$ .venv/bin/ruff check . | tail -1
+$ ruff check . | tail -1
 All checks passed!
-$ .venv/bin/ruff format --check . | tail -1
-123 files already formatted
-$ .venv/bin/mypy agentscope | tail -1
-Success: no issues found in 66 source files
+$ ruff format --check . | tail -1
+126 files already formatted
+$ mypy agentscope | tail -1
+Success: no issues found in 67 source files
 ```
 
 </details>
 
-Result: 193 Python tests passing (2 skipped by default; opt-in Docker and PostgreSQL integration
-tests are excluded), 82.39% branch coverage against a 70% gate, and 15 frontend tests in 3 files.
+Result: 238 Python tests passing (2 opt-in Docker and PostgreSQL integration tests are skipped by
+default), 84.14% branch coverage against a 75% gate, and 17 frontend tests in 4 files.
 
 ### Robustness
 
