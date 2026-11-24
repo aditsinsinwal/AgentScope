@@ -65,3 +65,65 @@ async def test_scheduler_enforces_concurrency() -> None:
     await asyncio.gather(*futures)
     assert peak == 2
     await scheduler.close()
+
+
+async def test_cancel_stops_running_job_not_just_its_future() -> None:
+    scheduler = AsyncRunScheduler(concurrency=1)
+    started = asyncio.Event()
+    unwound = asyncio.Event()
+
+    async def work() -> None:
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        finally:
+            unwound.set()  # stands in for sandbox __aexit__
+
+    job = ScheduledJob(work)
+    future = await scheduler.submit(job)
+    await asyncio.wait_for(started.wait(), 1)
+    assert scheduler.cancel(job.id)
+    await asyncio.wait_for(unwound.wait(), 1)
+    assert future.cancelled()
+    assert not scheduler.cancel(job.id)
+    # The worker survives a cancelled job and serves the next one.
+    assert await (await scheduler.submit(ScheduledJob(_value))) == "next"
+    await scheduler.close()
+
+
+async def _value() -> str:
+    return "next"
+
+
+async def test_close_cancels_running_and_queued_jobs_and_leaves_no_tasks() -> None:
+    scheduler = AsyncRunScheduler(concurrency=1)
+    started = asyncio.Event()
+    unwound = asyncio.Event()
+    ran_second = False
+
+    async def running() -> None:
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        finally:
+            unwound.set()
+
+    async def queued() -> None:
+        nonlocal ran_second
+        ran_second = True
+
+    first = await scheduler.submit(ScheduledJob(running))
+    second = await scheduler.submit(ScheduledJob(queued))
+    await asyncio.wait_for(started.wait(), 1)
+    workers = list(scheduler._workers)
+    await asyncio.wait_for(scheduler.close(), 2)
+    assert unwound.is_set() and first.cancelled() and second.cancelled()
+    assert not ran_second
+    assert all(worker.done() for worker in workers)
+    assert scheduler._workers == []
+
+
+def test_cancel_unknown_job_and_invalid_concurrency() -> None:
+    assert AsyncRunScheduler().cancel("job_missing") is False
+    with pytest.raises(ValueError):
+        AsyncRunScheduler(concurrency=0)

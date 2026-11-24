@@ -17,11 +17,13 @@ from agentscope.evaluation.evaluator import TestBasedEvaluator
 from agentscope.execution.sandbox.docker import DockerSandbox
 from agentscope.execution.sandbox.local import LocalSandbox
 from agentscope.replay.service import ReplayService
+from agentscope.suites.cli import suite_app
 from agentscope.tasks.loader import load_task
 from agentscope.tracing.recorder import JsonlTraceRecorder
 from agentscope.tracing.render import render_trace
 
 app = typer.Typer(no_args_is_help=True, help="Evaluate how AI agents behave, fail, and recover.")
+app.add_typer(suite_app, name="suite")
 
 
 @app.command()
@@ -99,6 +101,10 @@ def serve(
     """Serve the versioned HTTP API."""
     import uvicorn
 
+    from agentscope.api.middleware import warn_if_unauthenticated
+    from agentscope.config import get_settings
+
+    warn_if_unauthenticated(host, get_settings().api_token)
     uvicorn.run(create_app(sandbox_kind=sandbox), host=host, port=port)
 
 

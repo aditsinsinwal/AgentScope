@@ -18,6 +18,12 @@ class ScheduledJob:
     max_infrastructure_retries: int = 1
     attempts: int = 0
     future: asyncio.Future[Any] | None = None
+    task: asyncio.Task[Any] | None = None
+    cancel_requested: bool = False
+    # Awaited when the job is cancelled without a running task to unwind (e.g. still queued), so
+    # its owner can record a terminal state. Must be idempotent.
+    on_cancelled: Callable[[], Awaitable[None]] | None = None
+    cancel_callback: asyncio.Task[None] | None = None
 
 
 class AsyncRunScheduler:
@@ -46,10 +52,31 @@ class AsyncRunScheduler:
         return job.future
 
     def cancel(self, job_id: str) -> bool:
+        """Request cancellation; returns False if the job is unknown or already finished."""
         job = self._jobs.get(job_id)
         if job is None or job.future is None or job.future.done():
             return False
+        self._cancel_job(job)
         return job.future.cancel()
+
+    def _cancel_job(self, job: ScheduledJob) -> None:
+        job.cancel_requested = True
+        if job.task is not None and not job.task.done():
+            # Stop the running work too, so its sandbox context managers unwind.
+            job.task.cancel()
+        elif job.on_cancelled is not None and job.cancel_callback is None:
+            # Never started (or between retries): nothing will unwind, so notify the owner.
+            job.cancel_callback = asyncio.ensure_future(job.on_cancelled())
+
+    async def cancel_and_wait(self, job_id: str, settle_seconds: float = 5.0) -> bool:
+        """Cancel, then wait (bounded) until the job's task or cancel callback has settled."""
+        job = self._jobs.get(job_id)
+        cancelled = self.cancel(job_id)
+        if job is not None:
+            pending = {t for t in (job.task, job.cancel_callback) if t is not None and not t.done()}
+            if pending:
+                await asyncio.wait(pending, timeout=settle_seconds)
+        return cancelled
 
     async def _worker(self) -> None:
         while True:
@@ -60,8 +87,14 @@ class AsyncRunScheduler:
                 if job.future is None or job.future.cancelled():
                     continue
                 job.attempts += 1
+                job.task = asyncio.ensure_future(job.execute())
                 try:
-                    result = await job.execute()
+                    result = await job.task
+                except asyncio.CancelledError:
+                    if not job.cancel_requested:
+                        raise  # the worker itself is being cancelled
+                    if not job.future.done():
+                        job.future.cancel()
                 except InfrastructureFailure as exc:
                     if job.attempts <= job.max_infrastructure_retries:
                         await self._queue.put(job)
@@ -78,7 +111,16 @@ class AsyncRunScheduler:
                 self._queue.task_done()
 
     async def close(self) -> None:
+        """Cancel queued and running jobs, then stop workers; leaves no tasks behind."""
+        for job in self._jobs.values():
+            if job.future is not None and not job.future.done():
+                self._cancel_job(job)
+                job.future.cancel()
         for _ in self._workers:
             await self._queue.put(None)
         await asyncio.gather(*self._workers, return_exceptions=True)
+        callbacks = [j.cancel_callback for j in self._jobs.values() if j.cancel_callback]
+        if callbacks:
+            await asyncio.gather(*callbacks, return_exceptions=True)
         self._workers.clear()
+        self._jobs.clear()

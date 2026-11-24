@@ -12,10 +12,18 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://agentscope:agentscope@127.0.0.1:55432/agentscope"
     artifact_root: Path = Path("artifacts")
+    reports_dir: Path = Path("artifacts/suite-reports")
     sandbox_image: str = "agentscope-sandbox:py312"
     max_concurrent_runs: int = Field(default=2, ge=1, le=64)
     log_level: str = "INFO"
     api_key: str | None = None
+    api_token: str | None = None
+    max_request_bytes: int = Field(default=1_048_576, ge=1)
+    provider_max_attempts: int = Field(default=4, ge=1, le=10)
+    provider_backoff_base_seconds: float = Field(default=0.5, ge=0)
+    provider_backoff_cap_seconds: float = Field(default=30.0, ge=0)
+    provider_retry_read_timeout: bool = False
+    agent_max_tool_calls: int = Field(default=200, ge=1)
 
 
 @lru_cache

@@ -9,7 +9,9 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "skipLibCheck": true
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"]
   },
-  "include": ["src.tsx", "vite.config.ts", "env.d.ts"]
+  "include": ["src", "test", "vite.config.ts", "env.d.ts"]
 }

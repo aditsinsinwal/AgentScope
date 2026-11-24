@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any
@@ -7,14 +8,37 @@ from typing import Any
 import httpx
 
 from agentscope.agents.base import AgentEnvironment, AgentResult, Usage
-from agentscope.domain.errors import AgentExecutionError
+from agentscope.agents.providers.retry import (
+    RetryPolicy,
+    Sleep,
+    Uniform,
+    default_uniform,
+    parse_retry_after,
+)
+from agentscope.config import get_settings
+from agentscope.domain.errors import AgentLimitExceeded, ProviderError, ToolExecutionError
 from agentscope.domain.models import AgentConfiguration, EvaluationTask
+
+
+def _token(data: dict[str, Any], key: str) -> int | None:
+    value = data.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 class OpenAICompatibleAgent:
     """Minimal OpenAI-compatible chat/tool loop with configurable endpoint.
 
-    Credentials stay in this host-side adapter and are never passed to the sandbox.
+    Credentials stay in this host-side adapter and are never passed to the sandbox, never put in
+    error messages and never recorded in traces.
+
+    Failure model:
+    * transport errors, 429 and 5xx are retried with capped exponential backoff and full jitter
+      (``Retry-After`` seconds honoured, capped); other 4xx are never retried;
+    * a malformed provider response is a non-retryable ``ProviderError`` (the run cannot continue
+      without a coherent assistant message);
+    * a malformed or unknown *tool call* is the model's mistake, so it is fed back to the model as
+      a tool error and the loop continues; the step and tool-call caps bound how long that can go
+      on, ending in ``AgentLimitExceeded``.
     """
 
     def __init__(
@@ -23,12 +47,106 @@ class OpenAICompatibleAgent:
         api_key: str,
         *,
         client: httpx.AsyncClient | None = None,
+        retry: RetryPolicy | None = None,
+        sleep: Sleep = asyncio.sleep,
+        uniform: Uniform = default_uniform,
+        max_tool_calls: int | None = None,
     ) -> None:
         if configuration.model is None:
             raise ValueError("a model configuration is required")
         self.configuration = configuration
         self.api_key = api_key
         self._client = client
+        self.retry = retry or RetryPolicy.from_settings()
+        self._sleep = sleep
+        self._uniform = uniform
+        if max_tool_calls is not None and max_tool_calls < 1:
+            raise ValueError("max_tool_calls must be at least 1")
+        self.max_tool_calls = (
+            max_tool_calls if max_tool_calls is not None else get_settings().agent_max_tool_calls
+        )
+
+    def _redact(self, text: str) -> str:
+        return text.replace(self.api_key, "[redacted]") if self.api_key else text
+
+    async def _post(
+        self, client: httpx.AsyncClient, endpoint: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        attempt = 0
+        while True:
+            attempt += 1
+            retry_after: float | None = None
+            try:
+                response = await client.post(
+                    endpoint, headers={"Authorization": f"Bearer {self.api_key}"}, json=body
+                )
+            except httpx.InvalidURL as exc:
+                raise ProviderError("provider endpoint URL is invalid", attempts=attempt) from exc
+            except httpx.TransportError as exc:
+                retryable = self.retry.is_retryable_transport(exc)
+                error = ProviderError(
+                    f"provider transport error ({type(exc).__name__})",
+                    retryable=retryable,
+                    attempts=attempt,
+                )
+                if not retryable:
+                    raise error from exc
+            else:
+                code = response.status_code
+                if code < 400:
+                    try:
+                        payload = response.json()
+                    except ValueError as exc:
+                        raise ProviderError(
+                            "provider returned a non-JSON response", attempts=attempt
+                        ) from exc
+                    if not isinstance(payload, dict):
+                        raise ProviderError(
+                            "provider returned an unexpected JSON shape", attempts=attempt
+                        )
+                    return payload
+                retryable = code == 429 or code >= 500
+                if not retryable:
+                    raise ProviderError(
+                        f"provider rejected the request (HTTP {code})",
+                        status_code=code,
+                        attempts=attempt,
+                    )
+                retry_after = parse_retry_after(response.headers.get("Retry-After"))
+                error = ProviderError(
+                    "model provider rate limited the run"
+                    if code == 429
+                    else f"provider server error (HTTP {code})",
+                    retryable=True,
+                    status_code=code,
+                    attempts=attempt,
+                )
+            if attempt >= self.retry.max_attempts:
+                raise error
+            await self._sleep(self.retry.delay(attempt, retry_after, self._uniform))
+
+    async def _run_tool(
+        self, environment: AgentEnvironment, call: Any, known: frozenset[str]
+    ) -> tuple[str, bool]:
+        """Return (content for the model, whether the tool actually executed)."""
+        function = call.get("function") if isinstance(call, dict) else None
+        if not isinstance(function, dict) or not isinstance(function.get("name"), str):
+            return "ERROR: malformed tool call (missing function name)", False
+        name = function["name"]
+        if name not in known:
+            return f"ERROR: unknown or disabled tool: {name}", False
+        raw = function.get("arguments")
+        try:
+            arguments = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
+        except json.JSONDecodeError:
+            return "ERROR: tool arguments were not valid JSON", False
+        if not isinstance(arguments, dict):
+            return "ERROR: tool arguments must be a JSON object", False
+        try:
+            result = await environment.call_tool(name, arguments)
+        except ToolExecutionError as exc:
+            return f"ERROR: {exc}", True
+        return (result.content if result.success else f"ERROR: {result.error}"), True
 
     async def run(self, task: EvaluationTask, environment: AgentEnvironment) -> AgentResult:
         model = self.configuration.model
@@ -53,68 +171,87 @@ class OpenAICompatibleAgent:
             }
             for tool in environment.tools
         ]
+        known = frozenset(tool.name for tool in environment.tools)
         usage = Usage()
         client = self._client or httpx.AsyncClient(timeout=60)
         owns_client = self._client is None
-        tool_calls = 0
+        tool_calls = 0  # executed by the environment
+        attempted = 0  # includes malformed/unknown calls; this is what the cap bounds
         try:
             for step in range(1, self.configuration.max_steps + 1):
                 started = time.monotonic()
-                response = await client.post(
-                    endpoint,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    json={
-                        "model": model.model,
-                        "messages": messages,
-                        "tools": tools,
-                        "temperature": model.temperature,
-                        "max_tokens": model.max_output_tokens,
-                    },
-                )
-                if response.status_code == 429:
-                    raise AgentExecutionError("model provider rate limited the run")
-                response.raise_for_status()
-                payload = response.json()
-                token_data = payload.get("usage", {})
-                call_input_tokens = int(token_data.get("prompt_tokens", 0))
-                call_output_tokens = int(token_data.get("completion_tokens", 0))
+                try:
+                    payload = await self._post(
+                        client,
+                        endpoint,
+                        {
+                            "model": model.model,
+                            "messages": messages,
+                            "tools": tools,
+                            "temperature": model.temperature,
+                            "max_tokens": model.max_output_tokens,
+                        },
+                    )
+                except ProviderError as exc:
+                    await environment.record_model_call(
+                        model.model,
+                        (time.monotonic() - started) * 1000,
+                        None,
+                        None,
+                        status="error",
+                        error=self._redact(str(exc)),
+                    )
+                    raise
+                raw_usage = payload.get("usage")
+                token_data = raw_usage if isinstance(raw_usage, dict) else {}
+                call_input = _token(token_data, "prompt_tokens")
+                call_output = _token(token_data, "completion_tokens")
+                details = token_data.get("prompt_tokens_details")
+                cached = _token(details, "cached_tokens") if isinstance(details, dict) else None
+                cached = cached if cached is not None else _token(token_data, "cached_tokens")
                 await environment.record_model_call(
-                    model.model,
-                    (time.monotonic() - started) * 1000,
-                    call_input_tokens,
-                    call_output_tokens,
+                    model.model, (time.monotonic() - started) * 1000, call_input, call_output
                 )
                 usage = Usage(
                     usage.model_calls + 1,
-                    usage.input_tokens + call_input_tokens,
-                    usage.output_tokens + call_output_tokens,
-                    usage.cached_tokens + int(token_data.get("cached_tokens", 0)),
+                    usage.input_tokens + (call_input or 0),
+                    usage.output_tokens + (call_output or 0),
+                    usage.cached_tokens + (cached or 0),
+                    usage.unreported_calls + (1 if call_input is None else 0),
                 )
-                message = payload["choices"][0]["message"]
+                choices = payload.get("choices")
+                message = (
+                    choices[0].get("message")
+                    if isinstance(choices, list) and choices and isinstance(choices[0], dict)
+                    else None
+                )
+                if not isinstance(message, dict):
+                    raise ProviderError("provider response had no choices[0].message")
                 messages.append(message)
-                requested = message.get("tool_calls", [])
+                requested = message.get("tool_calls")
+                if requested is not None and not isinstance(requested, list):
+                    raise ProviderError("provider response had a malformed tool_calls field")
                 if not requested:
-                    return AgentResult(
-                        True, message.get("content") or "finished", step, tool_calls, usage
-                    )
-                for call in requested:
-                    function = call["function"]
-                    try:
-                        arguments = json.loads(function["arguments"])
-                    except json.JSONDecodeError:
-                        arguments = {}
-                    result = await environment.call_tool(function["name"], arguments)
-                    tool_calls += 1
+                    content = message.get("content")
+                    text = content if isinstance(content, str) and content else "finished"
+                    return AgentResult(True, text, step, tool_calls, usage)
+                for index, call in enumerate(requested):
+                    if attempted >= self.max_tool_calls:
+                        raise AgentLimitExceeded("max_tool_calls", self.max_tool_calls)
+                    attempted += 1
+                    content, executed = await self._run_tool(environment, call, known)
+                    tool_calls += 1 if executed else 0
+                    call_id = call.get("id") if isinstance(call, dict) else None
                     messages.append(
                         {
                             "role": "tool",
-                            "tool_call_id": call["id"],
-                            "content": result.content
-                            if result.success
-                            else f"ERROR: {result.error}",
+                            "tool_call_id": call_id
+                            if isinstance(call_id, str)
+                            else f"call_{index}",
+                            "content": content,
                         }
                     )
-            raise AgentExecutionError(f"agent exceeded {self.configuration.max_steps} steps")
+            raise AgentLimitExceeded("max_steps", self.configuration.max_steps)
         finally:
             if owns_client:
                 await client.aclose()

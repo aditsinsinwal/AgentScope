@@ -21,6 +21,35 @@ class AgentExecutionError(AgentScopeError):
     """Raised when an agent cannot finish its action loop."""
 
 
+class ProviderError(AgentExecutionError):
+    """A model provider call failed (agent loop or prompt-suite chat model).
+
+    Messages never contain credentials or request bodies.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+        attempts: int = 1,
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.status_code = status_code
+        self.attempts = attempts
+
+
+class AgentLimitExceeded(AgentExecutionError):
+    """The agent loop hit a hard step or tool-call cap; distinct from a provider/agent fault."""
+
+    def __init__(self, limit: str, value: int) -> None:
+        super().__init__(f"limit_exceeded: agent exceeded {limit}={value}")
+        self.limit = limit
+        self.value = value
+
+
 class ToolExecutionError(AgentScopeError):
     """Raised for a controlled tool failure."""
 
@@ -31,3 +60,15 @@ class EvaluationError(AgentScopeError):
 
 class RunNotFoundError(AgentScopeError):
     """Raised when a requested run does not exist."""
+
+
+class SuiteDefinitionError(AgentScopeError):
+    """Raised for an invalid or unsafe prompt-suite definition or case file."""
+
+
+class LoopbackViolationError(ProviderError):
+    """Raised when a loopback-only endpoint guard rejects a URL."""
+
+
+class SuiteComparisonError(AgentScopeError):
+    """Raised when two suite results cannot be compared."""

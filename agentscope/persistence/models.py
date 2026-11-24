@@ -77,8 +77,8 @@ class TraceRecord(Base):
     output_summary: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
     model: Mapped[str | None] = mapped_column(String(200))
-    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, default=0)
     event_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     run: Mapped[RunRecord] = relationship(back_populates="traces")
 

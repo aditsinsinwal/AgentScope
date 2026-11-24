@@ -16,6 +16,7 @@ from agentscope.domain.models import (
     EvaluationTask,
     ExperimentRun,
     FaultInjectionPolicy,
+    RunId,
     RunMeasurements,
 )
 from agentscope.domain.states import RunStatus
@@ -42,6 +43,13 @@ class RunEngine:
         self.traces = traces
         self.evaluator = evaluator
         self.sandbox_factory = sandbox_factory
+        self._background: set[asyncio.Future[None]] = set()
+
+    async def mark_cancelled(self, run_id: RunId) -> None:
+        """Record CANCELLED unless the run is already terminal. The engine is the only writer."""
+        stored = await self.runs.get(run_id)
+        if not stored.status.terminal:
+            await self._transition(stored, RunStatus.CANCELLED)
 
     async def _transition(self, run: ExperimentRun, status: RunStatus) -> ExperimentRun:
         run = run.transition(status)
@@ -149,6 +157,18 @@ class RunEngine:
                     )
                 )
                 return completed
+        except asyncio.CancelledError:
+            # Sandbox context managers have already unwound; record a terminal state, then
+            # propagate so the caller's task really ends.
+            # Shielded: a second cancellation must not interrupt persistence half-way.
+            persist = asyncio.ensure_future(self.mark_cancelled(run.id))
+            self._background.add(persist)
+            persist.add_done_callback(self._background.discard)
+            try:
+                await asyncio.shield(persist)
+            except asyncio.CancelledError:
+                pass
+            raise
         except SandboxError as exc:
             target = (
                 RunStatus.EVALUATION_FAILED

@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Query, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentscope import __version__
 from agentscope.agents.mock import MockAgent
+from agentscope.api.middleware import SecurityMiddleware, error_envelope
 from agentscope.api.schemas import (
     AgentConfigurationSchema,
-    ErrorBody,
     ExperimentCreate,
     ExperimentView,
     RunBatchView,
@@ -21,8 +25,10 @@ from agentscope.api.schemas import (
     TaskView,
     TraceView,
 )
+from agentscope.api.suites import build_suite_router
 from agentscope.application.repositories import InMemoryRunRepository
 from agentscope.application.run_engine import RunEngine
+from agentscope.config import get_settings
 from agentscope.domain.errors import AgentScopeError, RunNotFoundError
 from agentscope.domain.models import (
     AgentConfiguration,
@@ -32,7 +38,6 @@ from agentscope.domain.models import (
     RunId,
     TaskId,
 )
-from agentscope.domain.states import RunStatus
 from agentscope.evaluation.evaluator import TestBasedEvaluator
 from agentscope.execution.sandbox.docker import DockerSandbox
 from agentscope.execution.sandbox.local import LocalSandbox
@@ -41,6 +46,8 @@ from agentscope.scheduler.local import AsyncRunScheduler, ScheduledJob
 from agentscope.tasks.loader import load_task, task_fingerprint
 from agentscope.tracing.recorder import InMemoryTraceRecorder
 from agentscope.tracing.render import render_trace
+
+logger = logging.getLogger("agentscope.api")
 
 
 def _agent_config(value: AgentConfigurationSchema) -> AgentConfiguration:
@@ -87,7 +94,32 @@ class ApiState:
         self.engine = RunEngine(self.runs, self.traces, TestBasedEvaluator(), factory)
 
 
-def create_app(*, sandbox_kind: str = "docker", serve_frontend: bool = True) -> FastAPI:
+def _request_id(request: Request) -> str | None:
+    value = getattr(request.state, "request_id", None)
+    return value if isinstance(value, str) else None
+
+
+def create_app(
+    *,
+    sandbox_kind: str = "docker",
+    serve_frontend: bool = True,
+    api_token: str | None = None,
+    max_request_bytes: int | None = None,
+    reports_dir: Path | None = None,
+) -> FastAPI:
+    """Build the API. Token and body limit default to ``AGENTSCOPE_*`` settings.
+
+    CORS is deliberately not enabled: the dashboard is served same-origin and no cross-origin
+    caller is trusted.
+    """
+    settings = get_settings()
+    token = api_token if api_token is not None else settings.api_token
+    if token is not None and not token.strip():
+        logger.warning(
+            "AGENTSCOPE_API_TOKEN is set but empty: authentication is DISABLED. "
+            "Unset it deliberately or provide a real token."
+        )
+        token = None
     state = ApiState(sandbox_kind)
 
     @asynccontextmanager
@@ -98,18 +130,53 @@ def create_app(*, sandbox_kind: str = "docker", serve_frontend: bool = True) -> 
 
     app = FastAPI(title="AgentScope API", version="0.1.0", lifespan=lifespan)
     app.state.services = state
+    app.add_middleware(
+        SecurityMiddleware,
+        api_token=token or None,
+        max_request_bytes=max_request_bytes or settings.max_request_bytes,
+    )
+
+    app.include_router(build_suite_router(reports_dir or settings.reports_dir))
 
     @app.get("/api/v1/health")
+    @app.head("/api/v1/health", include_in_schema=False)
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__, "sandbox": state.sandbox_kind}
 
     @app.exception_handler(AgentScopeError)
-    async def expected_error(_: Request, exc: AgentScopeError) -> JSONResponse:
+    async def expected_error(request: Request, exc: AgentScopeError) -> JSONResponse:
         code = "not_found" if isinstance(exc, RunNotFoundError) else "agentscope_error"
         http_status = status.HTTP_404_NOT_FOUND if code == "not_found" else 422
         return JSONResponse(
             status_code=http_status,
-            content=ErrorBody(code=code, message=str(exc)).model_dump(),
+            content=error_envelope(code, str(exc), _request_id(request)),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Report location and reason only; never echo submitted values back.
+        details = [
+            {
+                "loc": [str(part) for part in item["loc"]],
+                "message": item["msg"],
+                "type": item["type"],
+            }
+            for item in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content=error_envelope(
+                "validation_error", "request validation failed", _request_id(request), details
+            ),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_envelope(code, str(exc.detail), _request_id(request)),
+            headers=getattr(exc, "headers", None),
         )
 
     @app.post("/api/v1/tasks", response_model=TaskView, status_code=201)
@@ -203,7 +270,10 @@ def create_app(*, sandbox_kind: str = "docker", serve_frontend: bool = True) -> 
                 async def execute_run(run: ExperimentRun = run, task: Any = task) -> ExperimentRun:
                     return await state.engine.execute(run, task, MockAgent(()))
 
-                job = ScheduledJob(execute_run)
+                job = ScheduledJob(
+                    execute_run,
+                    on_cancelled=partial(state.engine.mark_cancelled, run.id),
+                )
                 future = await state.scheduler.submit(job)
                 future.add_done_callback(
                     lambda done: None if done.cancelled() else done.exception()
@@ -273,9 +343,10 @@ def create_app(*, sandbox_kind: str = "docker", serve_frontend: bool = True) -> 
     async def cancel_run(run_id: str) -> RunView:
         run = await state.runs.get(RunId(run_id))
         job_id = state.run_jobs.get(run.id)
-        if job_id and state.scheduler.cancel(job_id) and not run.status.terminal:
-            run = run.transition(RunStatus.CANCELLED)
-            await state.runs.save(run)
+        if job_id:
+            # The engine (or the scheduler's cancel callback) is the single writer of CANCELLED.
+            await state.scheduler.cancel_and_wait(job_id, settle_seconds=5.0)
+            run = await state.runs.get(run.id)
         return _run_view(run)
 
     static_directory = Path(__file__).with_name("static")

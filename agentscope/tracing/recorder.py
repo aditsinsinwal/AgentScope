@@ -12,6 +12,11 @@ from agentscope.domain.models import RunId
 from agentscope.tracing.models import EventType, TraceEvent
 
 
+def _optional_int(value: object) -> int | None:
+    """Unknown token counts are stored as null and must stay None, never become 0."""
+    return None if value is None else int(str(value))
+
+
 class TraceRecorder(Protocol):
     async def append(self, event: TraceEvent) -> TraceEvent: ...
 
@@ -102,8 +107,8 @@ class JsonlTraceRecorder:
                         item.get("output_summary"),
                         item.get("error"),
                         item.get("model"),
-                        int(item.get("input_tokens", 0)),
-                        int(item.get("output_tokens", 0)),
+                        _optional_int(item.get("input_tokens", 0)),
+                        _optional_int(item.get("output_tokens", 0)),
                         item.get("metadata", {}),
                     )
                 )
