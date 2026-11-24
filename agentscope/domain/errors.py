@@ -57,3 +57,26 @@ class EvaluationError(AgentScopeError):
 
 class RunNotFoundError(AgentScopeError):
     """Raised when a requested run does not exist."""
+
+
+class SuiteDefinitionError(AgentScopeError):
+    """Raised for an invalid or unsafe prompt-suite definition or case file."""
+
+
+class ProviderError(AgentScopeError):
+    """Raised when a chat-model provider cannot return a completion."""
+
+    def __init__(
+        self, message: str, *, status_code: int | None = None, retryable: bool = False
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retryable = retryable
+
+
+class LoopbackViolationError(ProviderError):
+    """Raised when a loopback-only endpoint guard rejects a URL."""
+
+
+class SuiteComparisonError(AgentScopeError):
+    """Raised when two suite results cannot be compared."""
