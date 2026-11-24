@@ -18,6 +18,25 @@ model output are untrusted. Operators and the Docker daemon are trusted in v0.1.
 - no Docker socket or host workspace mount inside the sandbox;
 - bounded/redacted trace summaries.
 
+## HTTP API controls
+
+- Optional bearer token (`AGENTSCOPE_API_TOKEN`), compared in constant time, required for every
+  `/api/` route except `/api/v1/health`. When unset the API is open, intended only for loopback
+  development; `agentscope serve` logs one warning if it binds a non-loopback host without a token.
+  The static dashboard is served without authentication and does not yet send a token, so with a
+  token set it can load but cannot call the API.
+- Request bodies are limited (`AGENTSCOPE_MAX_REQUEST_BYTES`, default 1 MiB); larger declared or
+  chunked bodies get `413`.
+- Errors use one JSON envelope (`code`, `message`, `request_id`, optional `details`). Validation
+  details omit submitted values; unexpected errors return a generic message and are logged
+  server-side with the request id. `X-Request-ID` is echoed when it is a short `[A-Za-z0-9._-]`
+  token, otherwise a new id is generated.
+- CORS is not enabled; no cross-origin caller is trusted.
+- Provider errors carry the status code and a retryable flag, never the API key, request body or
+  response body.
+- `POST /api/v1/tasks` still loads any server-readable `definition_path`; a token is the only guard,
+  so do not expose the API to untrusted callers.
+
 ## Known limitations
 
 Docker shares the host kernel and is not a perfect hostile-code boundary. The default Docker daemon

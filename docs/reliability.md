@@ -12,3 +12,23 @@ The local scheduler bounds concurrency, cancels queued jobs, and retries only
 a partial model execution is safe to replay, so ambiguous attempts require reconciliation and a new
 linked run rather than an exactly-once claim.
 
+
+## Provider calls
+
+The OpenAI-compatible adapter retries transport errors, HTTP 429 and 5xx with exponential backoff and
+full jitter, bounded by `AGENTSCOPE_PROVIDER_MAX_ATTEMPTS`, `..._BACKOFF_BASE_SECONDS` and
+`..._BACKOFF_CAP_SECONDS`. A `Retry-After` value in seconds is honoured up to the cap. Other 4xx
+responses are never retried. Failures surface as `ProviderError` (retryable flag, status, attempts).
+A response without a usable `choices[0].message` is a non-retryable `ProviderError`. A malformed tool
+call, non-object arguments or an unknown tool is returned to the model as a tool error so the loop can
+recover. `max_steps` and `AGENTSCOPE_AGENT_MAX_TOOL_CALLS` bound the loop; hitting either raises
+`AgentLimitExceeded`, recorded as `agent_failed` with a `limit_exceeded:` failure message. Missing
+usage is recorded as unknown (`None` in the model-call event) and counted in `Usage.unreported_calls`,
+never as zero tokens.
+
+## Cancellation and shutdown
+
+Cancelling a run cancels the running job task, so the sandbox context manager unwinds, and the engine
+records `cancelled`. Closing the scheduler (application shutdown) cancels queued and running jobs and
+awaits its workers. Before this was fixed, `cancel` only cancelled the caller's future while the job
+kept running, and shutdown waited for running jobs.
