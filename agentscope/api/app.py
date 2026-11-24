@@ -25,6 +25,7 @@ from agentscope.api.schemas import (
     TaskView,
     TraceView,
 )
+from agentscope.api.suites import build_suite_router
 from agentscope.application.repositories import InMemoryRunRepository
 from agentscope.application.run_engine import RunEngine
 from agentscope.config import get_settings
@@ -104,6 +105,7 @@ def create_app(
     serve_frontend: bool = True,
     api_token: str | None = None,
     max_request_bytes: int | None = None,
+    reports_dir: Path | None = None,
 ) -> FastAPI:
     """Build the API. Token and body limit default to ``AGENTSCOPE_*`` settings.
 
@@ -133,6 +135,8 @@ def create_app(
         api_token=token or None,
         max_request_bytes=max_request_bytes or settings.max_request_bytes,
     )
+
+    app.include_router(build_suite_router(reports_dir or settings.reports_dir))
 
     @app.get("/api/v1/health")
     @app.head("/api/v1/health", include_in_schema=False)
