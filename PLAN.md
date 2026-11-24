@@ -24,6 +24,12 @@ target deployment.
 - [x] Phase 18 — minimal read-only React dashboard scaffold (backend remains authoritative)
 - [x] Phase 19 — five original deterministic Python tasks covering distinct capabilities
 - [x] Phase 20 — performance harness and complete architecture/security/operations documentation
+- [x] Phase 21 — prompt-suite domain, strict loader, fingerprints, and deterministic checkers
+- [x] Phase 22 — chat model interface, loopback guard, Ollama/LM Studio presets, replay provider
+- [x] Phase 23 — suite runner, artifacts (outputs, results, trace, report), paired `suite compare`
+- [x] Phase 24 — provider retry/backoff, typed errors, loop caps, scheduler cancellation unwinding
+- [x] Phase 25 — API bearer auth, body limit, request ids, error envelope, read-only suite-report API
+- [x] Phase 26 — dashboard suite views (reports, detail, compare), API token field, frontend CI job
 
 ## Release gates
 
@@ -35,6 +41,8 @@ measurement/experiment paths.
 ## Deferred beyond v0.1
 
 Redis is not justified for the single-database lease design yet. Trace artifact object storage,
-multi-language sandbox images, trace forking, semantic failure judging, authentication/RBAC, and
-a production dashboard are explicit follow-on work.
+multi-language sandbox images, trace forking, semantic failure judging (LLM judges are not planned;
+prompt suites use deterministic checkers only), RBAC, quotas, tenant isolation, and a production
+dashboard are explicit follow-on work. Real-model prompt-suite runs are not published in this
+repository; the replay demo is the only shipped result, and it is not a benchmark.
 
