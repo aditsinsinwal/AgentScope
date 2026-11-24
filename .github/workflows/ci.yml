@@ -72,3 +72,6 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Committed bundle is up to date
+        run: git diff --exit-code -- ../agentscope/api/static
