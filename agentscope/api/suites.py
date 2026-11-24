@@ -27,6 +27,7 @@ REPORT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 MAX_RESULTS_BYTES = 8 * 1024 * 1024
 MAX_REPORTS = 500
 RESULTS_FILE = "results.json"
+RESERVED_IDS = frozenset({"compare"})
 
 
 class ReportError(Exception):
@@ -90,7 +91,7 @@ def _summary(report_id: str, doc: ResultsDocument) -> dict[str, Any]:
 
 
 def build_suite_router(reports_dir: Path) -> APIRouter:
-    router = APIRouter(prefix="/api/v1/suite-reports", tags=["suite-reports"])
+    router = APIRouter(prefix="/api/v1", tags=["suite-reports"])
 
     def fail(request: Request, exc: ReportError) -> JSONResponse:
         request_id = getattr(request.state, "request_id", None)
@@ -101,13 +102,15 @@ def build_suite_router(reports_dir: Path) -> APIRouter:
             ),
         )
 
-    @router.get("")
+    @router.get("/suite-reports")
     def list_reports() -> list[dict[str, Any]]:
         if not reports_dir.is_dir():
             return []
         rows: list[dict[str, Any]] = []
         for entry in sorted(reports_dir.iterdir())[:MAX_REPORTS]:
             if not entry.is_dir() or entry.is_symlink() or not REPORT_ID.fullmatch(entry.name):
+                continue
+            if entry.name in RESERVED_IDS:
                 continue
             try:
                 rows.append(_summary(entry.name, _load(reports_dir, entry.name)))
@@ -117,8 +120,7 @@ def build_suite_router(reports_dir: Path) -> APIRouter:
         rows.sort(key=lambda r: (r["finished_at"], r["report_id"]), reverse=True)
         return rows
 
-    # Declared before "/{report_id}" so "compare" is never treated as an id.
-    @router.get("/compare", response_model=None)
+    @router.get("/suite-compare", response_model=None)
     def compare_reports(
         request: Request,
         a: str = Query(max_length=128),
@@ -135,7 +137,7 @@ def build_suite_router(reports_dir: Path) -> APIRouter:
         body["a"], body["b"] = _summary(a, doc_a), _summary(b, doc_b)
         return body
 
-    @router.get("/{report_id}", response_model=None)
+    @router.get("/suite-reports/{report_id}", response_model=None)
     def get_report(request: Request, report_id: str) -> Any:
         try:
             return _load(reports_dir, report_id).model_dump(mode="json")

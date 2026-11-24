@@ -148,18 +148,18 @@ def test_symlink_escape_rejected(reports: Path, tmp_path: Path) -> None:
 
 def test_compare(reports: Path) -> None:
     with client_for(reports) as client:
-        response = client.get("/api/v1/suite-reports/compare", params={"a": "chatty", "b": "good"})
+        response = client.get("/api/v1/suite-compare", params={"a": "chatty", "b": "good"})
         assert response.status_code == 200
         body = response.json()
         assert body["n_paired"] == 8
         assert body["b_better"] + body["tie"] + body["a_better"] == 8
         assert body["passed_b_only"] > 0 and body["a_source"] == "replay"
         assert body["a"]["report_id"] == "chatty" and isinstance(body["warnings"], list)
-        missing = client.get("/api/v1/suite-reports/compare", params={"a": "chatty", "b": "zzz"})
+        missing = client.get("/api/v1/suite-compare", params={"a": "chatty", "b": "zzz"})
         assert missing.status_code == 404
-        bad = client.get("/api/v1/suite-reports/compare", params={"a": "..", "b": "good"})
+        bad = client.get("/api/v1/suite-compare", params={"a": "..", "b": "good"})
         assert bad.status_code == 400
-        assert client.get("/api/v1/suite-reports/compare").status_code == 422
+        assert client.get("/api/v1/suite-compare").status_code == 422
 
 
 def test_compare_fingerprint_mismatch(reports: Path) -> None:
@@ -169,8 +169,8 @@ def test_compare_fingerprint_mismatch(reports: Path) -> None:
     path.write_text(json.dumps(data))
     with client_for(reports) as client:
         params = {"a": "chatty", "b": "good"}
-        assert client.get("/api/v1/suite-reports/compare", params=params).status_code == 422
-        ok = client.get("/api/v1/suite-reports/compare", params={**params, "allow_mismatch": True})
+        assert client.get("/api/v1/suite-compare", params=params).status_code == 422
+        ok = client.get("/api/v1/suite-compare", params={**params, "allow_mismatch": True})
         assert ok.status_code == 200 and ok.json()["fingerprint_match"] is False
 
 
@@ -179,7 +179,16 @@ def test_auth_required_when_token_set(reports: Path) -> None:
         for path in (
             "/api/v1/suite-reports",
             "/api/v1/suite-reports/good",
-            "/api/v1/suite-reports/compare?a=good&b=chatty",
+            "/api/v1/suite-compare?a=good&b=chatty",
         ):
             assert client.get(path).status_code == 401
             assert client.get(path, headers=AUTH).status_code == 200
+
+
+def test_report_named_compare_is_not_listed(reports: Path) -> None:
+    make_report(reports, "compare", "good")
+    with client_for(reports) as client:
+        ids = {r["report_id"] for r in client.get("/api/v1/suite-reports").json()}
+        assert "compare" not in ids and ids == {"good", "chatty"}
+        # Compare lives at its own path, so the id is still addressable directly.
+        assert client.get("/api/v1/suite-reports/compare").status_code == 200
