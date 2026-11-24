@@ -100,3 +100,31 @@ def test_api_cancel_and_shutdown_leave_no_running_tasks(monkeypatch: pytest.Monk
         # Cancelling again is a harmless no-op, not an error.
         assert client.post(f"/api/v1/runs/{run_ids[0]}/cancel").status_code == 202
     assert all(worker.done() for worker in state["workers"])
+
+
+async def test_local_sandbox_cancelled_mid_copy_leaves_no_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+    import threading
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.txt").write_text("x")
+    entered, release = threading.Event(), threading.Event()
+    real = shutil.copytree
+
+    def slow_copy(src: Path, dst: Path) -> Path:
+        entered.set()
+        release.wait(5)
+        return real(src, dst)
+
+    monkeypatch.setattr(shutil, "copytree", slow_copy)
+    sandbox = LocalSandbox(repo)
+    task = asyncio.create_task(sandbox.__aenter__())
+    await asyncio.to_thread(entered.wait, 5)
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert sandbox._temporary is None and sandbox.root is None

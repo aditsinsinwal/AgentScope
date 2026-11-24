@@ -29,9 +29,23 @@ class LocalSandbox:
 
     async def __aenter__(self) -> Self:
         self._temporary = TemporaryDirectory(prefix="agentscope-")
-        resolved = await asyncio.to_thread(Path(self._temporary.name).resolve)
-        self.root = resolved / "workspace"
-        await asyncio.to_thread(shutil.copytree, self._repository, self.root)
+        try:
+            resolved = await asyncio.to_thread(Path(self._temporary.name).resolve)
+            self.root = resolved / "workspace"
+            copying = asyncio.ensure_future(
+                asyncio.to_thread(shutil.copytree, self._repository, self.root)
+            )
+            try:
+                await asyncio.shield(copying)
+            except asyncio.CancelledError:
+                # The copy thread cannot be interrupted; let it finish before deleting the tree.
+                await asyncio.wait([copying])
+                raise
+        except BaseException:
+            await asyncio.to_thread(self._temporary.cleanup)
+            self._temporary = None
+            self.root = None
+            raise
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:

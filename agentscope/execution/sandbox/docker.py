@@ -13,7 +13,6 @@ from typing import Any, Self
 from agentscope.domain.errors import SandboxError
 from agentscope.execution.sandbox.base import CommandResult, validate_relative_path
 
-
 _BACKGROUND: set[asyncio.Future[None]] = set()
 
 
