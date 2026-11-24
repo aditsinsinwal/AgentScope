@@ -22,7 +22,10 @@ class AgentExecutionError(AgentScopeError):
 
 
 class ProviderError(AgentExecutionError):
-    """A model provider call failed. Messages never contain credentials or request bodies."""
+    """A model provider call failed (agent loop or prompt-suite chat model).
+
+    Messages never contain credentials or request bodies.
+    """
 
     def __init__(
         self,
@@ -61,17 +64,6 @@ class RunNotFoundError(AgentScopeError):
 
 class SuiteDefinitionError(AgentScopeError):
     """Raised for an invalid or unsafe prompt-suite definition or case file."""
-
-
-class ProviderError(AgentScopeError):
-    """Raised when a chat-model provider cannot return a completion."""
-
-    def __init__(
-        self, message: str, *, status_code: int | None = None, retryable: bool = False
-    ) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.retryable = retryable
 
 
 class LoopbackViolationError(ProviderError):
