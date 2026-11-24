@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -43,4 +44,4 @@ jobs:
         run: mypy agentscope
 
       - name: Test
-        run: pytest
+        run: pytest --cov=agentscope --cov-report=term-missing

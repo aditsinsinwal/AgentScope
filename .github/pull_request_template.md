@@ -4,6 +4,6 @@
 
 ## Release gates
 
-- [ ] `pytest` passes (coverage gate included)
+- [ ] `pytest --cov=agentscope` passes (coverage gate included)
 - [ ] `ruff check .` passes
 - [ ] `mypy agentscope` passes (strict)

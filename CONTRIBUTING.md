@@ -15,7 +15,8 @@ pip install -e '.[dev]'
 Every change must pass these three commands. CI runs them on Python 3.12 and 3.13.
 
 ```bash
-pytest              # tests plus the coverage gate (fail_under in pyproject.toml)
+pytest --cov=agentscope   # tests plus the coverage gate (fail_under in pyproject.toml)
+pytest tests/test_domain.py   # a quick partial run; no coverage gate
 ruff check .        # lint
 mypy agentscope     # strict type checking
 ```
