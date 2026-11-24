@@ -201,4 +201,4 @@ def compare(
 def _delta(value: float | None, scale: int = 100) -> str:
     if value is None:
         return "n/a"
-    return f"{value * scale:+.1f}" + (" pp" if scale == 100 else "")
+    return f"{value * 100:+.1f} pp" if scale == 100 else f"{value:+.3f}"

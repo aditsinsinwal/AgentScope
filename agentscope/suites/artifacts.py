@@ -176,7 +176,7 @@ def report_markdown(doc: ResultsDocument) -> str:
         "|---|---|",
         f"| Format valid | {_pct(agg.format_valid_rate)} |",
         f"| Passed | {_pct(agg.pass_rate)} |",
-        f"| Mean score | {_num(agg.mean_score)} |",
+        f"| Mean score | {'n/a' if agg.mean_score is None else f'{agg.mean_score:.3f}'} |",
         f"| Latency p50 / p95 (nearest-rank) | {_num(agg.latency_ms.p50, ' ms')} / "
         f"{_num(agg.latency_ms.p95, ' ms')} |",
         f"| Tokens prompt / completion | {_int(agg.tokens.prompt)} / "

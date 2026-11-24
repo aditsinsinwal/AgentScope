@@ -1,0 +1,22 @@
+id: task-cards-demo
+kind: prompt_suite
+name: Task-card extraction (synthetic demo)
+version: "1"
+cases: cases.jsonl
+system_prompt: |
+  Turn the message into a task card. Reply with exactly these five lines and nothing else:
+  TASK: <short imperative title>
+  OWNER: <person responsible>
+  DUE: <deadline as written>
+  PRIORITY: <Low, Medium or High>
+  NOTE: <one short sentence of context>
+generation:
+  temperature: 0
+  seed: 0
+  max_tokens: 200
+checker:
+  type: field_lines
+  fields: [TASK, OWNER, DUE, PRIORITY, NOTE]
+  allowed_values:
+    PRIORITY: [Low, Medium, High]
+  strict_line_count: true
