@@ -247,7 +247,17 @@ Mean content score delta (field matches; ignores format) (B - A): +0.000
   OWNER accuracy delta: +0.0 pp
   PRIORITY accuracy delta: +12.5 pp
   TASK accuracy delta: +0.0 pp
-Counts only; no significance is claimed. Not a human preference judgement.
+Intervals (paired percentile bootstrap, B - A, n=8 paired, 95% confidence, 10000 resamples, seed 0):
+  Format valid rate delta: +75.0 pp [+50.0, +100.0]
+  Pass rate delta: +50.0 pp [+12.5, +87.5]
+  Mean content score delta: +0.000 [+0.000, +0.000]
+  DUE accuracy delta: -12.5 pp [-37.5, +0.0] (n=8)
+  NOTE accuracy delta: +0.0 pp [+0.0, +0.0] (n=8)
+  OWNER accuracy delta: +0.0 pp [+0.0, +0.0] (n=8)
+  PRIORITY accuracy delta: +12.5 pp [+0.0, +37.5] (n=8)
+  TASK accuracy delta: +0.0 pp [+0.0, +0.0] (n=8)
+  McNemar on pass/fail (exact two-sided binomial): passed only in B 4, only in A 0, p = 0.1250
+Counts and intervals only; no significance is claimed. Not a human preference judgement.
 
 $ agentscope suite run --suite examples/suites/task-cards/suite.yaml --provider ollama \
     --model demo --base-url https://api.example.com/v1 --out artifacts/demo/x
