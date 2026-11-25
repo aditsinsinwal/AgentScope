@@ -13,3 +13,4 @@ htmlcov/
 artifacts/
 frontend/node_modules/
 
+frontend/dist-demo/
