@@ -124,7 +124,8 @@ never estimated.
 ```
 agentscope suite validate SUITE.yaml
 agentscope suite run --suite SUITE.yaml --provider ollama --model llama3.2 --out runs/base
-agentscope suite compare runs/base/results.json runs/tuned/results.json [--json] [--allow-mismatch]
+agentscope suite compare runs/base/results.json runs/tuned/results.json [--json] [--allow-mismatch] \
+    [--resamples 10000] [--confidence 0.95] [--seed 0]
 ```
 
 `run` options: `--base-url`, `--replay-outputs`, `--local-only`, `--api-key-env`,
@@ -174,8 +175,20 @@ artifacts unless `--overwrite` is given, so traces from two runs are never mixed
 `suite compare A B` requires equal suite fingerprints (otherwise exit 2; `--allow-mismatch`
 compares shared ids with a warning). It reports, over cases scored on both sides: how many are
 better in B, tied, or better in A by score; how many were format-valid or passed on only one
-side; and rate and per-field accuracy deltas (B minus A). Only counts and differences are
-printed. No p-values or significance claims are made.
+side; and rate and per-field accuracy deltas (B minus A).
+
+It also prints paired intervals (also under `intervals` in `--json` and in
+`GET /api/v1/suite-compare`). Each interval is a paired percentile bootstrap of the mean
+per-case difference B minus A, over cases scored on both sides: the same case ids are resampled
+together, so the spread reflects how much the difference varies from case to case, not how hard
+the cases are. Defaults are 10000 resamples, 0.95 confidence and seed 0 (`--resamples` 100 to
+100000, `--confidence` above 0.5 and below 1, `--seed`); the same inputs and seed always give the
+same numbers. The pass/fail view adds an exact two-sided McNemar test on the cases that passed on
+only one side. These are numbers with their method, not a verdict. With few cases the interval is
+wide and rough: a percentile bootstrap on a handful of cases can understate the uncertainty, a
+field's interval uses only the cases where both sides have that field, and with fewer than 2
+paired cases every interval is `null`. Interval estimates are paired-case means, so they can
+differ slightly from the aggregate rate deltas above.
 
 ## Worked example (no network, no model)
 
