@@ -113,9 +113,23 @@ jobs:
           pip install -e '.[dev]'
 
       - name: Migrate up, down, and up again
+        env:
+          PGPASSWORD: agentscope
         run: |
+          psql_q() { psql -h 127.0.0.1 -U agentscope -d agentscope -v ON_ERROR_STOP=1 -tA "$@"; }
           alembic upgrade head
           alembic downgrade base
+          # Exercise the 0002 data path: a row written at 0001, NULL tokens at head, back to 0001.
+          alembic upgrade 0001
+          psql_q -c "INSERT INTO tasks (id, name, version, fingerprint, definition) VALUES ('mig', 'Migration', '1', '0', '{}')"
+          psql_q -c "INSERT INTO runs (id, task_id, status, seed, agent_configuration, task_hash, environment_fingerprint, measurements, attempt, created_at, updated_at) VALUES ('run_mig', 'mig', 'created', 0, '{}', '', '', '{}', 0, now(), now())"
+          psql_q -c "INSERT INTO trace_events (id, run_id, sequence, event_type, name, timestamp, status, input_tokens, output_tokens, event_metadata) VALUES (gen_random_uuid(), 'run_mig', 1, 'agent_step', 's', now(), 'ok', 5, 5, '{}')"
+          alembic upgrade head
+          psql_q -c "UPDATE trace_events SET input_tokens = NULL, output_tokens = NULL"
+          alembic downgrade 0001
+          test "$(psql_q -c 'SELECT input_tokens || output_tokens FROM trace_events')" = "00"
+          alembic downgrade base
+          test "$(psql_q -c "SELECT string_agg(table_name, ',') FROM information_schema.tables WHERE table_schema = 'public'")" = "alembic_version"
           alembic upgrade head
 
       - name: PostgreSQL integration tests

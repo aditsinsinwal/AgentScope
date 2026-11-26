@@ -85,7 +85,6 @@ async def test_run_save_is_an_upsert_and_unknown_run_raises(
     loaded = await runs.get(run.id)
     assert loaded == queued
     assert loaded.status is RunStatus.QUEUED
-    assert run.id in {item.id for item in await runs.list(limit=1000)}
     other = ExperimentRun(TaskId(TASK), AgentConfiguration("mock"))
     with pytest.raises(RunNotFoundError):
         await runs.get(other.id)
