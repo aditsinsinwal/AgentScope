@@ -21,10 +21,11 @@ from agentscope.api.middleware import error_envelope
 from agentscope.suites.compare import compare_results
 from agentscope.suites.results import SCHEMA_VERSION, ResultsDocument
 from agentscope.suites.stats import (
+    API_MAX_RESAMPLES,
     DEFAULT_CONFIDENCE,
     DEFAULT_RESAMPLES,
     DEFAULT_SEED,
-    MAX_RESAMPLES,
+    MAX_SEED,
     MIN_RESAMPLES,
 )
 
@@ -133,9 +134,9 @@ def build_suite_router(reports_dir: Path) -> APIRouter:
         a: str = Query(max_length=128),
         b: str = Query(max_length=128),
         allow_mismatch: bool = False,
-        resamples: int = Query(DEFAULT_RESAMPLES, ge=MIN_RESAMPLES, le=MAX_RESAMPLES),
+        resamples: int = Query(DEFAULT_RESAMPLES, ge=MIN_RESAMPLES, le=API_MAX_RESAMPLES),
         confidence: float = Query(DEFAULT_CONFIDENCE, gt=0.5, lt=1),
-        seed: int = DEFAULT_SEED,
+        seed: int = Query(DEFAULT_SEED, ge=-MAX_SEED, le=MAX_SEED),
     ) -> Any:
         try:
             doc_a, doc_b = _load(reports_dir, a), _load(reports_dir, b)

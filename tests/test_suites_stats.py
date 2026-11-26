@@ -185,3 +185,42 @@ def test_cli_rejects_bad_options(tmp_path: Path, extra: list[str]) -> None:
         app, ["suite", "compare", str(paths["chatty"]), str(paths["good"]), *extra]
     )
     assert result.exit_code != 0
+
+
+def test_work_budget_constant_arithmetic() -> None:
+    from agentscope.suites import stats
+
+    stats.check_work_budget(10_000, 50, 8)  # 4e6, within the limit
+    stats.check_work_budget(20_000, 100, 10)  # exactly 2e7
+    with pytest.raises(ValueError, match="exceeds the limit"):
+        stats.check_work_budget(20_000, 1_000, 10)
+
+
+def test_compare_rejects_over_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from agentscope.domain.errors import SuiteComparisonError
+    from agentscope.suites import stats
+
+    a, b, paths = _docs(tmp_path)
+    monkeypatch.setattr(stats, "MAX_BOOTSTRAP_WORK", 1000)
+    with pytest.raises(SuiteComparisonError, match="exceeds the limit"):
+        compare_results(a, b)
+    result = runner.invoke(app, ["suite", "compare", str(paths["chatty"]), str(paths["good"])])
+    assert result.exit_code == 2 and "exceeds the limit" in result.output
+
+
+def test_score_is_required_float() -> None:
+    from pydantic import ValidationError
+
+    from agentscope.suites.results import CheckResult
+
+    with pytest.raises(ValidationError):
+        CheckResult(passed=True, score=None, format_valid=True, fields=None, detail="")  # type: ignore[arg-type]
+
+
+def test_cli_validation_message_and_exit_code(tmp_path: Path) -> None:
+    _, _, paths = _docs(tmp_path)
+    args = ["suite", "compare", str(paths["chatty"]), str(paths["good"])]
+    low = runner.invoke(app, [*args, "--resamples", "99"])
+    assert low.exit_code == 2 and "error: resamples must be between 100 and 100000" in low.output
+    conf = runner.invoke(app, [*args, "--confidence", "0.5"])
+    assert conf.exit_code == 2 and "error: confidence must be greater than 0.5" in conf.output

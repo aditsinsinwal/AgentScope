@@ -190,6 +190,11 @@ field's interval uses only the cases where both sides have that field, and with 
 paired cases every interval is `null`. Interval estimates are paired-case means, so they can
 differ slightly from the aggregate rate deltas above.
 
+Cost limits: the API accepts at most 20000 resamples (the CLI up to 100000). Both refuse a
+comparison when resamples x paired cases x number of metrics exceeds 20,000,000
+(`MAX_BOOTSTRAP_WORK`); the API answers 422 and the CLI exits 2 with the message. Lower
+`--resamples` to fit. The API `seed` must be within plus or minus 2**63.
+
 ## Worked example (no network, no model)
 
 `examples/suites/task-cards/` holds a synthetic suite of 8 task-card cases and two recorded

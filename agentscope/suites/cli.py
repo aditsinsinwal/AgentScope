@@ -36,6 +36,7 @@ from agentscope.suites.stats import (
     DEFAULT_SEED,
     MAX_RESAMPLES,
     MIN_RESAMPLES,
+    validate_params,
 )
 
 suite_app = typer.Typer(no_args_is_help=True, help="Run deterministic prompt-suite evaluations.")
@@ -200,10 +201,7 @@ def compare(
     resamples: Annotated[
         int,
         typer.Option(
-            "--resamples",
-            min=MIN_RESAMPLES,
-            max=MAX_RESAMPLES,
-            help="Bootstrap resamples.",
+            "--resamples", help=f"Bootstrap resamples ({MIN_RESAMPLES} to {MAX_RESAMPLES})."
         ),
     ] = DEFAULT_RESAMPLES,
     confidence: Annotated[
@@ -213,8 +211,10 @@ def compare(
     seed: Annotated[int, typer.Option("--seed", help="Bootstrap RNG seed.")] = DEFAULT_SEED,
 ) -> None:
     """Compare two results.json files from the same suite (paired; counts and intervals)."""
-    if not 0.5 < confidence < 1:
-        raise _fail(ValueError("--confidence must be greater than 0.5 and less than 1"))
+    try:
+        validate_params(resamples, confidence)
+    except ValueError as exc:
+        raise _fail(exc) from exc
     try:
         comparison = compare_results(
             load_results(a_path),

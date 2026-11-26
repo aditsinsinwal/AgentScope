@@ -16,6 +16,10 @@ DEFAULT_CONFIDENCE = 0.95
 DEFAULT_SEED = 0
 MIN_RESAMPLES = 100
 MAX_RESAMPLES = 100_000
+API_MAX_RESAMPLES = 20_000
+# Upper bound on resamples * paired cases * metrics, which sets the bootstrap's CPU cost.
+MAX_BOOTSTRAP_WORK = 20_000_000
+MAX_SEED = 2**63
 BOOTSTRAP_METHOD = "paired percentile bootstrap"
 MCNEMAR_METHOD = "exact two-sided binomial"
 
@@ -33,6 +37,15 @@ def validate_params(resamples: int, confidence: float) -> None:
         raise ValueError(f"resamples must be between {MIN_RESAMPLES} and {MAX_RESAMPLES}")
     if not 0.5 < confidence < 1:
         raise ValueError("confidence must be greater than 0.5 and less than 1")
+
+
+def check_work_budget(resamples: int, n_cases: int, n_metrics: int) -> None:
+    work = resamples * n_cases * n_metrics
+    if work > MAX_BOOTSTRAP_WORK:
+        raise ValueError(
+            f"bootstrap work {resamples} resamples x {n_cases} paired cases x {n_metrics} metrics "
+            f"= {work} exceeds the limit of {MAX_BOOTSTRAP_WORK}; lower the resamples"
+        )
 
 
 def quantile(sorted_values: Sequence[float], q: float) -> float:
@@ -74,6 +87,7 @@ def paired_bootstrap(
         present[name] = [0 if x is None else 1 for x in series]
     if not values:
         return out
+    check_work_budget(resamples, n, len(values))
     rng = random.Random(seed)
     population = range(n)
     draws: dict[str, list[float]] = {name: [] for name in values}

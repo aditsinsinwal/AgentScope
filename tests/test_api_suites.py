@@ -191,6 +191,20 @@ def test_compare_intervals_payload(reports: Path) -> None:
             assert client.get("/api/v1/suite-compare", params={**params, **bad}).status_code == 422
 
 
+def test_compare_over_work_budget_is_422(reports: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from agentscope.suites import stats
+
+    monkeypatch.setattr(stats, "MAX_BOOTSTRAP_WORK", 1000)
+    with client_for(reports) as client:
+        response = client.get("/api/v1/suite-compare", params={"a": "chatty", "b": "good"})
+        assert response.status_code == 422
+        assert "exceeds the limit" in json.dumps(response.json())
+        ok = client.get("/api/v1/suite-compare", params={"a": "chatty", "b": "good", "seed": 2**63})
+        assert (
+            ok.status_code == 422
+        )  # still over the patched budget, but the seed bound is inclusive
+
+
 def test_compare_fingerprint_mismatch(reports: Path) -> None:
     path = reports / "chatty" / "results.json"
     data = json.loads(path.read_text())

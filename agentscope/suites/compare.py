@@ -127,7 +127,10 @@ def compare_results(
         "format_valid_rate_delta": fmt_d,
     }
     metrics.update({f"field:{name}": series for name, series in field_d.items()})
-    boot = paired_bootstrap(metrics, resamples=resamples, confidence=confidence, seed=seed)
+    try:
+        boot = paired_bootstrap(metrics, resamples=resamples, confidence=confidence, seed=seed)
+    except ValueError as exc:
+        raise SuiteComparisonError(str(exc)) from exc
     n_pairs = len(pairs)
     intervals: dict[str, Any] = {
         "method": BOOTSTRAP_METHOD,
