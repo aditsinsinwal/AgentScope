@@ -83,8 +83,17 @@ class ExactChecker:
         if reference is None:
             raise ValueError("exact checker requires a reference")
         got = normalise(unwrap_fence(_bounded(output)), case_insensitive=self.case_insensitive)
-        # Same treatment as the output, so a fenced or over-long reference still matches itself.
-        want = normalise(unwrap_fence(_bounded(reference)), case_insensitive=self.case_insensitive)
+        if len(output) > MAX_CHECK_CHARS or len(reference) > MAX_CHECK_CHARS:
+            # Comparing truncated text could pass two values that differ past the limit.
+            return CaseCheck(
+                passed=False,
+                score=0.0,
+                format_valid=bool(got),
+                fields=None,
+                detail=f"output or reference over {MAX_CHECK_CHARS} characters; not compared",
+            )
+        # Fences are removed from both sides, as FieldLinesChecker already does.
+        want = normalise(unwrap_fence(reference), case_insensitive=self.case_insensitive)
         passed = got == want
         return CaseCheck(
             passed=passed,

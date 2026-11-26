@@ -103,7 +103,17 @@ def test_exact_accepts_fenced_reference(body: str) -> None:
 
 @SETTINGS
 @given(length=st.integers(min_value=MAX_CHECK_CHARS + 1, max_value=MAX_CHECK_CHARS + 50))
-def test_exact_accepts_long_reference(length: int) -> None:
-    # Regression: length=100001 (reference "a" * 100001) used to fail to match itself.
-    reference = "a" * length
-    assert ExactChecker().check(reference, reference).passed
+def test_exact_refuses_to_compare_over_the_limit(length: int) -> None:
+    # Truncated comparison would pass values that differ only past MAX_CHECK_CHARS.
+    result = ExactChecker().check("a" * length + "X", "a" * length + "Y")
+    assert not result.passed
+    assert "not compared" in result.detail
+    assert not ExactChecker().check("a" * length, "a" * length).passed
+
+
+@SETTINGS
+@given(body=st.text(alphabet=st.characters(blacklist_characters="`"), max_size=60))
+def test_exact_fenced_reference_matches_unfenced_output(body: str) -> None:
+    # A fence is removed from both sides, so a fenced reference matches the bare text.
+    result = ExactChecker().check(body, f"```\n{body}\n```")
+    assert result.passed
