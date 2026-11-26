@@ -87,30 +87,52 @@ async def test_two_container_hidden_test_boundary() -> None:
     assert result.result is not None and result.result.passed
 
 
+_NETWORK_PROBE = (
+    "import socket\n"
+    "try:\n"
+    "    socket.create_connection(('1.1.1.1', 443), timeout=3)\n"
+    "except TimeoutError:\n"
+    "    print('TIMEOUT')\n"
+    "    raise SystemExit(2)\n"
+    "except OSError as exc:\n"
+    "    print('NO_NETWORK errno=%s' % exc.errno)\n"
+    "else:\n"
+    "    print('CONNECTED')\n"
+    "    raise SystemExit(3)\n"
+)
+_HIDDEN = ".agentscope_hidden_tests/"
+
+
 class _ProbingSandbox(DockerSandbox):
-    """Real DockerSandbox that records its container id and probes the network on entry."""
+    """Real DockerSandbox that records what the agent and evaluator containers can see."""
 
     instances: ClassVar[list[_ProbingSandbox]] = []
 
     async def __aenter__(self) -> _ProbingSandbox:
         await super().__aenter__()
-        type(self).instances.append(self)
-        self.container_id: str = self._container.id
-        self.hidden_dir_present = (
-            "\n".join(await self.list_directory(PurePosixPath("."))).find(
-                ".agentscope_hidden_tests"
+        try:
+            type(self).instances.append(self)
+            self.container_id: str = self._container.id
+            self.python_control = await self.execute(
+                ("python", "-c", "import socket; print('ok')"), 20
             )
-            >= 0
-        )
-        self.network_probe = await self.execute(
-            (
-                "python",
-                "-c",
-                "import socket;socket.create_connection(('1.1.1.1', 443), timeout=3)",
-            ),
-            20,
-        )
+            self.network_probe = await self.execute(("python", "-c", _NETWORK_PROBE), 20)
+        except BaseException:
+            await self._shielded_cleanup()
+            raise
         return self
+
+    async def _listing(self) -> list[str]:
+        return list(await self.list_directory(PurePosixPath(".")))
+
+    async def export_workspace(self, destination: Path) -> None:
+        # Called right before the agent workspace is frozen for the evaluator.
+        self.listing_at_freeze = await self._listing()
+        await super().export_workspace(destination)
+
+    async def install_hidden_tests(self) -> None:
+        await super().install_hidden_tests()
+        self.listing_after_install = await self._listing()
 
 
 @pytest.mark.docker
@@ -137,9 +159,13 @@ async def test_agent_and_evaluator_run_in_separate_network_less_containers() -> 
     assert result.result is not None and result.result.passed
     agent_box, evaluator_box = _ProbingSandbox.instances
     assert agent_box.container_id != evaluator_box.container_id
-    # The agent container never holds hidden tests; the evaluator installs them after the freeze.
-    assert agent_box.hidden_dir_present is False
-    # Outbound network calls fail in both containers (network_disabled=True).
+    # The agent workspace never holds hidden tests, checked right before it is frozen.
+    assert _HIDDEN not in agent_box.listing_at_freeze
+    # Positive control: the evaluator container does hold them once installed.
+    assert _HIDDEN in evaluator_box.listing_after_install
     for box in (agent_box, evaluator_box):
-        assert box.network_probe.exit_code != 0
-        assert "OSError" in box.network_probe.stderr or "Error" in box.network_probe.stderr
+        # Positive control: python works, so a failing probe is about the network only.
+        assert (box.python_control.exit_code, box.python_control.stdout.strip()) == (0, "ok")
+        # Outbound connections fail with an OSError, not a timeout (network_disabled=True).
+        assert box.network_probe.exit_code == 0, box.network_probe
+        assert box.network_probe.stdout.startswith("NO_NETWORK errno="), box.network_probe
