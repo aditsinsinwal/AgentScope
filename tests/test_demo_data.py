@@ -29,4 +29,6 @@ def test_generation_is_deterministic(demo, tmp_path):  # type: ignore[no-untyped
 
 
 def test_committed_demo_data_is_current(demo):  # type: ignore[no-untyped-def]
-    assert demo.main(["--check"]) == 0
+    assert demo.main(["--check"]) == 0, (
+        "demo data is stale: run python scripts/build_demo_data.py and commit frontend/demo-data"
+    )
