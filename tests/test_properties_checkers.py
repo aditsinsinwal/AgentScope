@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -96,25 +95,15 @@ def test_field_card_accepts_its_own_reference(
         lambda s: s.strip() != ""
     )
 )
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: exact checker does not unwrap a fence in the reference, so a fenced "
-    "reference never matches itself",
-)
 def test_exact_accepts_fenced_reference(body: str) -> None:
-    # Failing example: body="a" -> reference "```\na\n```" is not accepted by ExactChecker.
+    # Regression: body="a" -> reference "```\na\n```" used to fail to match itself.
     reference = f"```\n{body}\n```"
     assert ExactChecker().check(reference, reference).passed
 
 
 @SETTINGS
 @given(length=st.integers(min_value=MAX_CHECK_CHARS + 1, max_value=MAX_CHECK_CHARS + 50))
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: exact checker truncates the output to MAX_CHECK_CHARS but not the reference, "
-    "so a reference longer than the cap never matches itself",
-)
 def test_exact_accepts_long_reference(length: int) -> None:
-    # Failing example: length=100001 (reference "a" * 100001).
+    # Regression: length=100001 (reference "a" * 100001) used to fail to match itself.
     reference = "a" * length
     assert ExactChecker().check(reference, reference).passed

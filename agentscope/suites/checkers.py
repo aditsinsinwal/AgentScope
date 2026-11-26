@@ -83,7 +83,8 @@ class ExactChecker:
         if reference is None:
             raise ValueError("exact checker requires a reference")
         got = normalise(unwrap_fence(_bounded(output)), case_insensitive=self.case_insensitive)
-        want = normalise(reference, case_insensitive=self.case_insensitive)
+        # Same treatment as the output, so a fenced or over-long reference still matches itself.
+        want = normalise(unwrap_fence(_bounded(reference)), case_insensitive=self.case_insensitive)
         passed = got == want
         return CaseCheck(
             passed=passed,
