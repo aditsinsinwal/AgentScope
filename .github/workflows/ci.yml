@@ -127,7 +127,7 @@ jobs:
           alembic upgrade head
           psql_q -c "UPDATE trace_events SET input_tokens = NULL, output_tokens = NULL"
           alembic downgrade 0001
-          test "$(psql_q -c 'SELECT input_tokens || output_tokens FROM trace_events')" = "00"
+          test "$(psql_q -c 'SELECT input_tokens::text || output_tokens::text FROM trace_events')" = "00"
           alembic downgrade base
           test "$(psql_q -c "SELECT string_agg(table_name, ',') FROM information_schema.tables WHERE table_schema = 'public'")" = "alembic_version"
           alembic upgrade head
