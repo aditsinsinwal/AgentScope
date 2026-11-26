@@ -82,6 +82,10 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
     throw new ApiError("Could not reach the AgentScope API.", 0, "network_error", null);
   }
+  if (demo && (!response.ok || !(response.headers.get("content-type") ?? "").includes("application/json"))) {
+    throw new ApiError(
+      "This report or pair is not in the static demo.", response.status, DEMO_UNAVAILABLE, null);
+  }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as Envelope | null;
     const str = (value: unknown): string | null => (typeof value === "string" ? value : null);

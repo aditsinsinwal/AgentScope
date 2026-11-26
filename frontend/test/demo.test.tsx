@@ -1,7 +1,7 @@
 import {cleanup, render, screen} from "@testing-library/react";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {api, ApiError, demoUrl, DEMO_BANNER} from "../src/api/client";
-import {App} from "../src/App";
+import {Root} from "../src/Root";
 import {jsonResponse, report} from "./fixtures";
 
 describe("static demo mode", () => {
@@ -49,17 +49,39 @@ describe("static demo mode", () => {
   it("shows the banner, hides the token field and marks Runs as unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse([])));
     window.location.hash = "#/runs";
-    render(<App />);
+    render(<Root />);
     expect(screen.getByRole("note").textContent).toBe(DEMO_BANNER);
     expect(DEMO_BANNER).toBe("Static demo: replayed recorded outputs, no model was called.");
     expect(screen.queryByLabelText("API token")).toBeNull();
     expect(await screen.findByText("Not available in the static demo")).toBeTruthy();
   });
 
+  it("turns a missing or non-JSON static file into demo_unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>404</html>", {status: 404})));
+    await expect(api.report("nope")).rejects.toMatchObject({
+      code: "demo_unavailable", message: "This report or pair is not in the static demo.",
+    });
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response("<html>spa</html>", {status: 200, headers: {"content-type": "text/html"}})));
+    await expect(api.compare("a", "b")).rejects.toMatchObject({code: "demo_unavailable"});
+  });
+
+  it("keeps the banner when the app crashes into the error boundary", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse([])));
+    vi.doMock("../src/App", () => ({App: () => { throw new Error("boom"); }}));
+    vi.resetModules();
+    const {Root: CrashingRoot} = await import("../src/Root");
+    render(<CrashingRoot />);
+    expect(screen.getByRole("note").textContent).toBe(DEMO_BANNER);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    vi.doUnmock("../src/App");
+  });
+
   it("has no banner outside demo mode", () => {
     vi.stubEnv("VITE_DEMO", "");
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse([])));
-    render(<App />);
+    render(<Root />);
     expect(screen.queryByRole("note")).toBeNull();
     expect(screen.getByLabelText("API token")).toBeTruthy();
   });

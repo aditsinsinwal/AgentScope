@@ -1,5 +1,5 @@
 import {type ReactNode, useState} from "react";
-import {api, DEMO_BANNER, isDemo} from "../api/client";
+import {api, isDemo} from "../api/client";
 import {href} from "../lib/route";
 import {useAsync} from "../lib/useAsync";
 import {TokenField} from "./TokenField";
@@ -45,6 +45,5 @@ export function Layout({section, children, onTokenChange}: {
     <footer className="footer">
       <span>Deterministic checks only. Not a human preference judgement.</span>
     </footer>
-    {demo && <div className="demo-banner" role="note">{DEMO_BANNER}</div>}
   </div>;
 }
