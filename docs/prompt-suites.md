@@ -57,7 +57,7 @@ chatty preamble. Each returns `CaseCheck(passed, score in [0,1], format_valid, f
 
 | type | passes when | `format_valid` | `score` |
 |---|---|---|---|
-| `exact` | normalised output equals the reference (NFC, whitespace collapsed; `case_insensitive` optional) | output non-empty | 1 or 0 |
+| `exact` | normalised output equals the normalised reference (fence removed from both, NFC, whitespace collapsed; `case_insensitive` optional). Fails without comparing if either side exceeds 100,000 characters | output non-empty | 1 or 0 |
 | `regex` | output `fullmatch`es (default) or `search`es `pattern` (`ignore_case` optional) | same as passed | 1 or 0 |
 | `field_lines` | format valid and every field matches the reference | see below | matched fields / total fields |
 | `json_keys` | output is a JSON object containing all `keys` | same as passed | present keys / required keys |
