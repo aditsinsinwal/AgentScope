@@ -124,7 +124,8 @@ never estimated.
 ```
 agentscope suite validate SUITE.yaml
 agentscope suite run --suite SUITE.yaml --provider ollama --model llama3.2 --out runs/base
-agentscope suite compare runs/base/results.json runs/tuned/results.json [--json] [--allow-mismatch]
+agentscope suite compare runs/base/results.json runs/tuned/results.json [--json] [--allow-mismatch] \
+    [--resamples 10000] [--confidence 0.95] [--seed 0]
 ```
 
 `run` options: `--base-url`, `--replay-outputs`, `--local-only`, `--api-key-env`,
@@ -174,8 +175,25 @@ artifacts unless `--overwrite` is given, so traces from two runs are never mixed
 `suite compare A B` requires equal suite fingerprints (otherwise exit 2; `--allow-mismatch`
 compares shared ids with a warning). It reports, over cases scored on both sides: how many are
 better in B, tied, or better in A by score; how many were format-valid or passed on only one
-side; and rate and per-field accuracy deltas (B minus A). Only counts and differences are
-printed. No p-values or significance claims are made.
+side; and rate and per-field accuracy deltas (B minus A).
+
+It also prints paired intervals (also under `intervals` in `--json` and in
+`GET /api/v1/suite-compare`). Each interval is a paired percentile bootstrap of the mean
+per-case difference B minus A, over cases scored on both sides: the same case ids are resampled
+together, so the spread reflects how much the difference varies from case to case, not how hard
+the cases are. Defaults are 10000 resamples, 0.95 confidence and seed 0 (`--resamples` 100 to
+100000, `--confidence` above 0.5 and below 1, `--seed`); the same inputs and seed always give the
+same numbers. The pass/fail view adds an exact two-sided McNemar test on the cases that passed on
+only one side. These are numbers with their method, not a verdict. With few cases the interval is
+wide and rough: a percentile bootstrap on a handful of cases can understate the uncertainty, a
+field's interval uses only the cases where both sides have that field, and with fewer than 2
+paired cases every interval is `null`. Interval estimates are paired-case means, so they can
+differ slightly from the aggregate rate deltas above.
+
+Cost limits: the API accepts at most 20000 resamples (the CLI up to 100000). Both refuse a
+comparison when resamples x paired cases x number of metrics exceeds 20,000,000
+(`MAX_BOOTSTRAP_WORK`); the API answers 422 and the CLI exits 2 with the message. Lower
+`--resamples` to fit. The API `seed` must be within plus or minus 2**63.
 
 ## Worked example (no network, no model)
 
@@ -234,7 +252,17 @@ Mean content score delta (field matches; ignores format) (B - A): +0.000
   OWNER accuracy delta: +0.0 pp
   PRIORITY accuracy delta: +12.5 pp
   TASK accuracy delta: +0.0 pp
-Counts only; no significance is claimed. Not a human preference judgement.
+Intervals (paired percentile bootstrap, B - A, n=8 paired, 95% confidence, 10000 resamples, seed 0):
+  Format valid rate delta: +75.0 pp [+50.0, +100.0]
+  Pass rate delta: +50.0 pp [+12.5, +87.5]
+  Mean content score delta: +0.000 [+0.000, +0.000]
+  DUE accuracy delta: -12.5 pp [-37.5, +0.0] (n=8)
+  NOTE accuracy delta: +0.0 pp [+0.0, +0.0] (n=8)
+  OWNER accuracy delta: +0.0 pp [+0.0, +0.0] (n=8)
+  PRIORITY accuracy delta: +12.5 pp [+0.0, +37.5] (n=8)
+  TASK accuracy delta: +0.0 pp [+0.0, +0.0] (n=8)
+  McNemar on pass/fail (exact two-sided binomial): passed only in B 4, only in A 0, p = 0.1250
+Counts and intervals only; no significance is claimed. Not a human preference judgement.
 
 $ agentscope suite run --suite examples/suites/task-cards/suite.yaml --provider ollama \
     --model demo --base-url https://api.example.com/v1 --out artifacts/demo/x

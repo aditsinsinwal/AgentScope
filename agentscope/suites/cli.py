@@ -7,7 +7,7 @@ import dataclasses
 import json
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -30,6 +30,14 @@ from agentscope.suites.providers import (
     url_host,
 )
 from agentscope.suites.runner import SuiteRunner, SuiteTraceWriter
+from agentscope.suites.stats import (
+    DEFAULT_CONFIDENCE,
+    DEFAULT_RESAMPLES,
+    DEFAULT_SEED,
+    MAX_RESAMPLES,
+    MIN_RESAMPLES,
+    validate_params,
+)
 
 suite_app = typer.Typer(no_args_is_help=True, help="Run deterministic prompt-suite evaluations.")
 
@@ -190,11 +198,31 @@ def compare(
     b_path: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
     as_json: Annotated[bool, typer.Option("--json")] = False,
     allow_mismatch: Annotated[bool, typer.Option("--allow-mismatch")] = False,
+    resamples: Annotated[
+        int,
+        typer.Option(
+            "--resamples", help=f"Bootstrap resamples ({MIN_RESAMPLES} to {MAX_RESAMPLES})."
+        ),
+    ] = DEFAULT_RESAMPLES,
+    confidence: Annotated[
+        float,
+        typer.Option("--confidence", help="Interval confidence, above 0.5 and below 1."),
+    ] = DEFAULT_CONFIDENCE,
+    seed: Annotated[int, typer.Option("--seed", help="Bootstrap RNG seed.")] = DEFAULT_SEED,
 ) -> None:
-    """Compare two results.json files from the same suite (paired, counts only)."""
+    """Compare two results.json files from the same suite (paired; counts and intervals)."""
+    try:
+        validate_params(resamples, confidence)
+    except ValueError as exc:
+        raise _fail(exc) from exc
     try:
         comparison = compare_results(
-            load_results(a_path), load_results(b_path), allow_mismatch=allow_mismatch
+            load_results(a_path),
+            load_results(b_path),
+            allow_mismatch=allow_mismatch,
+            resamples=resamples,
+            confidence=confidence,
+            seed=seed,
         )
     except AgentScopeError as exc:
         raise _fail(exc) from exc
@@ -219,7 +247,45 @@ def compare(
     typer.echo(f"Mean content score delta (field matches; ignores format) (B - A): {mean_delta}")
     for name, value in comparison.field_accuracy_delta.items():
         typer.echo(f"  {name} accuracy delta: {_delta(value)}")
-    typer.echo("Counts only; no significance is claimed. Not a human preference judgement.")
+    _print_intervals(comparison.intervals)
+    typer.echo(
+        "Counts and intervals only; no significance is claimed. Not a human preference judgement."
+    )
+
+
+def _fmt_interval(entry: dict[str, Any] | None, *, pp: bool) -> str:
+    if entry is None:
+        return "n/a (fewer than 2 paired cases)"
+    scale = 100 if pp else 1
+    unit = " pp" if pp else ""
+    spec = "+.1f" if pp else "+.3f"
+    return (
+        f"{entry['estimate'] * scale:{spec}}{unit} "
+        f"[{entry['low'] * scale:{spec}}, {entry['high'] * scale:{spec}}]"
+    )
+
+
+def _print_intervals(iv: dict[str, Any]) -> None:
+    typer.echo(
+        f"Intervals ({iv['method']}, B - A, n={iv['n_paired']} paired, "
+        f"{iv['confidence'] * 100:g}% confidence, {iv['resamples']} resamples, seed {iv['seed']}):"
+    )
+    typer.echo(
+        f"  Format valid rate delta: {_fmt_interval(iv['format_valid_rate_delta'], pp=True)}"
+    )
+    typer.echo(f"  Pass rate delta: {_fmt_interval(iv['pass_rate_delta'], pp=True)}")
+    typer.echo(f"  Mean content score delta: {_fmt_interval(iv['mean_score_delta'], pp=False)}")
+    for name, entry in iv["field_accuracy_delta"].items():
+        n = f" (n={entry['n']})" if entry else ""
+        typer.echo(f"  {name} accuracy delta: {_fmt_interval(entry, pp=True)}{n}")
+    mc = iv["mcnemar_pass"]
+    if mc is None:
+        typer.echo("  McNemar on pass/fail: n/a (fewer than 2 paired cases)")
+    else:
+        typer.echo(
+            f"  McNemar on pass/fail ({mc['method']}): passed only in B {mc['b_only']}, "
+            f"only in A {mc['a_only']}, p = {mc['p_value']:.4f}"
+        )
 
 
 def _delta(value: float | None, scale: int = 100) -> str:

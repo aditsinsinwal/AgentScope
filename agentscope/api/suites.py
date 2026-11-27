@@ -20,6 +20,14 @@ from pydantic import ValidationError
 from agentscope.api.middleware import error_envelope
 from agentscope.suites.compare import compare_results
 from agentscope.suites.results import SCHEMA_VERSION, ResultsDocument
+from agentscope.suites.stats import (
+    API_MAX_RESAMPLES,
+    DEFAULT_CONFIDENCE,
+    DEFAULT_RESAMPLES,
+    DEFAULT_SEED,
+    MAX_SEED,
+    MIN_RESAMPLES,
+)
 
 logger = logging.getLogger("agentscope.api.suites")
 
@@ -126,12 +134,22 @@ def build_suite_router(reports_dir: Path) -> APIRouter:
         a: str = Query(max_length=128),
         b: str = Query(max_length=128),
         allow_mismatch: bool = False,
+        resamples: int = Query(DEFAULT_RESAMPLES, ge=MIN_RESAMPLES, le=API_MAX_RESAMPLES),
+        confidence: float = Query(DEFAULT_CONFIDENCE, gt=0.5, lt=1),
+        seed: int = Query(DEFAULT_SEED, ge=-MAX_SEED, le=MAX_SEED),
     ) -> Any:
         try:
             doc_a, doc_b = _load(reports_dir, a), _load(reports_dir, b)
         except ReportError as exc:
             return fail(request, exc)
-        result = compare_results(doc_a, doc_b, allow_mismatch=allow_mismatch)
+        result = compare_results(
+            doc_a,
+            doc_b,
+            allow_mismatch=allow_mismatch,
+            resamples=resamples,
+            confidence=confidence,
+            seed=seed,
+        )
         body = asdict(result)
         body["warnings"] = list(result.warnings)
         body["a"], body["b"] = _summary(a, doc_a), _summary(b, doc_b)

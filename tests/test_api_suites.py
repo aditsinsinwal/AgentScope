@@ -162,6 +162,52 @@ def test_compare(reports: Path) -> None:
         assert client.get("/api/v1/suite-compare").status_code == 422
 
 
+def test_compare_intervals_payload(reports: Path) -> None:
+    with client_for(reports) as client:
+        params = {"a": "chatty", "b": "good"}
+        body = client.get("/api/v1/suite-compare", params=params).json()
+        iv = body["intervals"]
+        assert iv["method"] == "paired percentile bootstrap"
+        assert (iv["resamples"], iv["confidence"], iv["seed"], iv["n_paired"]) == (
+            10000,
+            0.95,
+            0,
+            8,
+        )
+        assert iv["pass_rate_delta"]["estimate"] == 0.5
+        assert iv["mcnemar_pass"]["p_value"] == 0.125
+        assert set(iv["field_accuracy_delta"]["DUE"]) == {"estimate", "low", "high", "n"}
+        custom = client.get(
+            "/api/v1/suite-compare",
+            params={**params, "resamples": 200, "confidence": 0.9, "seed": 4},
+        ).json()["intervals"]
+        assert (custom["resamples"], custom["confidence"], custom["seed"]) == (200, 0.9, 4)
+        for bad in (
+            {"resamples": 99},
+            {"resamples": 100001},
+            {"confidence": 0.5},
+            {"confidence": 1},
+        ):
+            assert client.get("/api/v1/suite-compare", params={**params, **bad}).status_code == 422
+
+
+def test_compare_over_work_budget_is_422(reports: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from agentscope.suites import stats
+
+    monkeypatch.setattr(stats, "MAX_BOOTSTRAP_WORK", 1000)
+    with client_for(reports) as client:
+        response = client.get("/api/v1/suite-compare", params={"a": "chatty", "b": "good"})
+        assert response.status_code == 422
+        assert "exceeds the limit" in json.dumps(response.json())
+
+
+def test_compare_seed_bounds_are_inclusive(reports: Path) -> None:
+    with client_for(reports) as client:
+        for seed in (2**63, -(2**63)):
+            params = {"a": "chatty", "b": "good", "seed": seed, "resamples": 100}
+            assert client.get("/api/v1/suite-compare", params=params).status_code == 200
+
+
 def test_compare_fingerprint_mismatch(reports: Path) -> None:
     path = reports / "chatty" / "results.json"
     data = json.loads(path.read_text())
