@@ -42,6 +42,66 @@
   "format_valid_a_only": 6,
   "format_valid_b_only": 0,
   "format_valid_rate_delta": -0.75,
+  "intervals": {
+    "confidence": 0.95,
+    "field_accuracy_delta": {
+      "DUE": {
+        "estimate": 0.125,
+        "high": 0.375,
+        "low": 0.0,
+        "n": 8
+      },
+      "NOTE": {
+        "estimate": 0.0,
+        "high": 0.0,
+        "low": 0.0,
+        "n": 8
+      },
+      "OWNER": {
+        "estimate": 0.0,
+        "high": 0.0,
+        "low": 0.0,
+        "n": 8
+      },
+      "PRIORITY": {
+        "estimate": -0.125,
+        "high": 0.0,
+        "low": -0.375,
+        "n": 8
+      },
+      "TASK": {
+        "estimate": 0.0,
+        "high": 0.0,
+        "low": 0.0,
+        "n": 8
+      }
+    },
+    "format_valid_rate_delta": {
+      "estimate": -0.75,
+      "high": -0.5,
+      "low": -1.0
+    },
+    "mcnemar_pass": {
+      "a_only": 4,
+      "b_only": 0,
+      "method": "exact two-sided binomial",
+      "p_value": 0.125
+    },
+    "mean_score_delta": {
+      "estimate": 0.0,
+      "high": 0.0,
+      "low": 0.0
+    },
+    "method": "paired percentile bootstrap",
+    "n_paired": 8,
+    "pass_rate_delta": {
+      "estimate": -0.5,
+      "high": -0.125,
+      "low": -0.875
+    },
+    "resamples": 10000,
+    "seed": 0
+  },
   "mean_score_delta": 0.0,
   "n_paired": 8,
   "n_unpaired": 0,
