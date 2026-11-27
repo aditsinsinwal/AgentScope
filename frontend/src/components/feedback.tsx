@@ -1,5 +1,5 @@
 import type {ReactNode} from "react";
-import {ApiError} from "../api/client";
+import {ApiError, DEMO_UNAVAILABLE} from "../api/client";
 
 export function ErrorState({error, onRetry, title = "Request failed"}: {
   error: Error;
@@ -7,6 +7,7 @@ export function ErrorState({error, onRetry, title = "Request failed"}: {
   title?: string;
 }) {
   const api = error instanceof ApiError ? error : null;
+  if (api?.code === DEMO_UNAVAILABLE) return <DemoUnavailable detail={error.message} />;
   const needsToken = api?.status === 401;
   return <div className="callout callout--error" role="alert">
     <div>
@@ -35,5 +36,17 @@ export function EmptyState({title, children}: {title: string; children?: ReactNo
   return <div className="empty">
     <h3>{title}</h3>
     {children}
+  </div>;
+}
+
+/** Shown instead of pages that need the live server when running the static demo. */
+export function DemoUnavailable({name, detail}: {name?: string; detail?: string}) {
+  return <div className="callout" role="status">
+    <div>
+      <strong>Not available in the static demo</strong>
+      <p>{detail ?? `${name ?? "This page"} needs a running AgentScope server.`}</p>
+      <p>Run <code>agentscope serve</code> locally to use it. The demo shows suite reports and the
+        compare view built from recorded replay outputs.</p>
+    </div>
   </div>;
 }

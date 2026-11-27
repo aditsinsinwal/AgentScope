@@ -1,0 +1,57 @@
+{
+  "a": {
+    "finished_at": "2026-01-01T12:01:01+00:00",
+    "format_valid_rate": 0.25,
+    "model": "replay",
+    "n": 8,
+    "n_failed": 0,
+    "pass_rate": 0.25,
+    "provider": "replay",
+    "report_id": "replay-chatty",
+    "source": "replay",
+    "suite_id": "task-cards-demo",
+    "suite_name": "Task-card extraction (synthetic demo)",
+    "suite_version": "1"
+  },
+  "a_better": 0,
+  "a_source": "replay",
+  "b": {
+    "finished_at": "2026-01-01T12:00:01+00:00",
+    "format_valid_rate": 1.0,
+    "model": "replay",
+    "n": 8,
+    "n_failed": 0,
+    "pass_rate": 0.75,
+    "provider": "replay",
+    "report_id": "replay-good",
+    "source": "replay",
+    "suite_id": "task-cards-demo",
+    "suite_name": "Task-card extraction (synthetic demo)",
+    "suite_version": "1"
+  },
+  "b_better": 0,
+  "b_source": "replay",
+  "field_accuracy_delta": {
+    "DUE": -0.125,
+    "NOTE": 0.0,
+    "OWNER": 0.0,
+    "PRIORITY": 0.125,
+    "TASK": 0.0
+  },
+  "fingerprint_match": true,
+  "format_valid_a_only": 0,
+  "format_valid_b_only": 6,
+  "format_valid_rate_delta": 0.75,
+  "mean_score_delta": 0.0,
+  "n_paired": 8,
+  "n_unpaired": 0,
+  "pass_rate_delta": 0.5,
+  "passed_a_only": 0,
+  "passed_b_only": 4,
+  "suite_id": "task-cards-demo",
+  "tie": 8,
+  "warnings": [
+    "A is a replay of recorded outputs, not a generated run",
+    "B is a replay of recorded outputs, not a generated run"
+  ]
+}

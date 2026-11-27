@@ -1,0 +1,427 @@
+{
+  "aggregate": {
+    "field_accuracy": {
+      "DUE": 1.0,
+      "NOTE": 1.0,
+      "OWNER": 1.0,
+      "PRIORITY": 0.75,
+      "TASK": 1.0
+    },
+    "format_valid_rate": 0.25,
+    "latency_ms": {
+      "method": "nearest-rank",
+      "n": 0,
+      "p50": null,
+      "p95": null
+    },
+    "mean_score": 0.95,
+    "n": 8,
+    "n_failed": 0,
+    "n_scored": 8,
+    "pass_rate": 0.25,
+    "tokens": {
+      "cases_reporting": 0,
+      "completion": null,
+      "prompt": null
+    }
+  },
+  "cases": [
+    {
+      "check": {
+        "detail": "1 extra non-field line(s)",
+        "fields": {
+          "DUE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "NOTE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "OWNER": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "PRIORITY": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "TASK": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          }
+        },
+        "format_valid": false,
+        "passed": false,
+        "score": 1.0
+      },
+      "completion_tokens": null,
+      "error": null,
+      "finish_reason": "replay",
+      "id": "t01",
+      "latency_ms": null,
+      "output_chars": 148,
+      "output_sha256": "6c98db6843e09f9c160d9939ff8957ed6da0f7151611543e00d33cf45b56a225",
+      "prompt_tokens": null,
+      "status": "ok"
+    },
+    {
+      "check": {
+        "detail": "format valid; all fields match",
+        "fields": {
+          "DUE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "NOTE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "OWNER": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "PRIORITY": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "TASK": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          }
+        },
+        "format_valid": true,
+        "passed": true,
+        "score": 1.0
+      },
+      "completion_tokens": null,
+      "error": null,
+      "finish_reason": "replay",
+      "id": "t02",
+      "latency_ms": null,
+      "output_chars": 119,
+      "output_sha256": "17bf37db4f0dba9a0ad1161293b51ebd8fe5905d6c745b2bc6e6cbf2678bfb75",
+      "prompt_tokens": null,
+      "status": "ok"
+    },
+    {
+      "check": {
+        "detail": "1 extra non-field line(s)",
+        "fields": {
+          "DUE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "NOTE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "OWNER": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "PRIORITY": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "TASK": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          }
+        },
+        "format_valid": false,
+        "passed": false,
+        "score": 1.0
+      },
+      "completion_tokens": null,
+      "error": null,
+      "finish_reason": "replay",
+      "id": "t03",
+      "latency_ms": null,
+      "output_chars": 173,
+      "output_sha256": "367c7af3679efadfda9b036b0d60d3e60c1b3cb1fa623c0923b71f5763908e37",
+      "prompt_tokens": null,
+      "status": "ok"
+    },
+    {
+      "check": {
+        "detail": "PRIORITY value not in allowed values",
+        "fields": {
+          "DUE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "NOTE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "OWNER": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "PRIORITY": {
+            "matched": false,
+            "present": true,
+            "valid": false
+          },
+          "TASK": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          }
+        },
+        "format_valid": false,
+        "passed": false,
+        "score": 0.8
+      },
+      "completion_tokens": null,
+      "error": null,
+      "finish_reason": "replay",
+      "id": "t04",
+      "latency_ms": null,
+      "output_chars": 124,
+      "output_sha256": "3c8188d054142adc150713db7527af38b788c2d69732979a98df33561f9f707f",
+      "prompt_tokens": null,
+      "status": "ok"
+    },
+    {
+      "check": {
+        "detail": "1 extra non-field line(s)",
+        "fields": {
+          "DUE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "NOTE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "OWNER": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "PRIORITY": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "TASK": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          }
+        },
+        "format_valid": false,
+        "passed": false,
+        "score": 1.0
+      },
+      "completion_tokens": null,
+      "error": null,
+      "finish_reason": "replay",
+      "id": "t05",
+      "latency_ms": null,
+      "output_chars": 133,
+      "output_sha256": "c5a88daa921e91828190406ce2cc99ea5dd8f4aa7fcb08168726845976e3870d",
+      "prompt_tokens": null,
+      "status": "ok"
+    },
+    {
+      "check": {
+        "detail": "format valid; all fields match",
+        "fields": {
+          "DUE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "NOTE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "OWNER": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "PRIORITY": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "TASK": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          }
+        },
+        "format_valid": true,
+        "passed": true,
+        "score": 1.0
+      },
+      "completion_tokens": null,
+      "error": null,
+      "finish_reason": "replay",
+      "id": "t06",
+      "latency_ms": null,
+      "output_chars": 124,
+      "output_sha256": "adcf0b7580e62b83c702c3583118da0d9cdc907014ecd7bda364e0f5297c27fd",
+      "prompt_tokens": null,
+      "status": "ok"
+    },
+    {
+      "check": {
+        "detail": "1 extra non-field line(s)",
+        "fields": {
+          "DUE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "NOTE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "OWNER": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "PRIORITY": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "TASK": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          }
+        },
+        "format_valid": false,
+        "passed": false,
+        "score": 1.0
+      },
+      "completion_tokens": null,
+      "error": null,
+      "finish_reason": "replay",
+      "id": "t07",
+      "latency_ms": null,
+      "output_chars": 178,
+      "output_sha256": "7edfc3836b6aa3c196352ef57ff072975c2ad3628b004b23365e3ef0467757c4",
+      "prompt_tokens": null,
+      "status": "ok"
+    },
+    {
+      "check": {
+        "detail": "PRIORITY value not in allowed values",
+        "fields": {
+          "DUE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "NOTE": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "OWNER": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          },
+          "PRIORITY": {
+            "matched": false,
+            "present": true,
+            "valid": false
+          },
+          "TASK": {
+            "matched": true,
+            "present": true,
+            "valid": true
+          }
+        },
+        "format_valid": false,
+        "passed": false,
+        "score": 0.8
+      },
+      "completion_tokens": null,
+      "error": null,
+      "finish_reason": "replay",
+      "id": "t08",
+      "latency_ms": null,
+      "output_chars": 123,
+      "output_sha256": "e627b9c16d15e6d9260880ef989ebc22c80b178d952275a2ab48823bb79589e4",
+      "prompt_tokens": null,
+      "status": "ok"
+    }
+  ],
+  "note": "Deterministic checks only; not a human preference judgement.",
+  "run": {
+    "base_url_host": null,
+    "case_timeout_seconds": 120.0,
+    "concurrency": 1,
+    "finished_at": "2026-01-01T12:01:01+00:00",
+    "model": "replay",
+    "params": {
+      "max_tokens": 200,
+      "seed": 0,
+      "temperature": 0.0
+    },
+    "provider": "replay",
+    "replay_unused_ids": [],
+    "source": "replay",
+    "started_at": "2026-01-01T12:01:00+00:00",
+    "trace_text": true
+  },
+  "schema_version": 1,
+  "suite": {
+    "checker": {
+      "allowed_values": {
+        "PRIORITY": [
+          "Low",
+          "Medium",
+          "High"
+        ]
+      },
+      "fields": [
+        "TASK",
+        "OWNER",
+        "DUE",
+        "PRIORITY",
+        "NOTE"
+      ],
+      "ordered": true,
+      "strict_line_count": true,
+      "type": "field_lines"
+    },
+    "fingerprint": "98db77dfe50402f186b1c3594859dfcdad75ae66d4d6594da4fe02fd4cc9d8aa",
+    "id": "task-cards-demo",
+    "n_cases": 8,
+    "name": "Task-card extraction (synthetic demo)",
+    "version": "1"
+  }
+}
