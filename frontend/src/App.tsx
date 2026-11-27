@@ -1,4 +1,6 @@
 import {useState} from "react";
+import {isDemo} from "./api/client";
+import {DemoUnavailable} from "./components/feedback";
 import {Layout} from "./components/Layout";
 import {useRoute} from "./lib/route";
 import {ComparePage} from "./pages/Compare";
@@ -14,8 +16,12 @@ export function App() {
   const [section = "reports", param] = route.segments;
   let page;
   switch (section) {
-    case "runs": page = <RunsPage refreshKey={refreshKey} />; break;
-    case "experiments": page = <ExperimentsPage key={refreshKey} />; break;
+    case "runs":
+      page = isDemo() ? <DemoUnavailable name="Runs" /> : <RunsPage refreshKey={refreshKey} />;
+      break;
+    case "experiments":
+      page = isDemo() ? <DemoUnavailable name="Experiments" /> : <ExperimentsPage key={refreshKey} />;
+      break;
     case "compare":
       page = <ComparePage key={refreshKey} a={route.query.get("a") ?? ""} b={route.query.get("b") ?? ""} />;
       break;
